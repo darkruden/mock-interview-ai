@@ -11,7 +11,8 @@ venv/
 *.tfstate
 *.tfstate.backup
 .terraform.lock.hcl
-
+*.tfvars
+*.tfvars.example
 # IDE
 .vscode/
 .idea/

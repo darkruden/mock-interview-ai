@@ -69,3 +69,47 @@ resource "aws_lambda_function" "get_upload_url" {
     }
   }
 }
+
+# --- 4. A Função Lambda Processor (O Cérebro) ---
+resource "aws_lambda_function" "process_audio" {
+  function_name = "${var.project_name}-process-audio-${var.environment}"
+  role          = aws_iam_role.lambda_role.arn
+  
+  filename         = data.archive_file.lambda_zip.output_path
+  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+  
+  runtime = "python3.11"
+  handler = "handlers.process_audio.lambda_handler"
+  timeout = 60 # IA demora mais que APIs normais, damos 1 minuto
+  memory_size = 256 # Um pouco mais de RAM para processar arquivos
+
+  environment {
+    variables = {
+      TABLE_NAME     = aws_dynamodb_table.sessions_table.name
+      GEMINI_API_KEY = var.gemini_api_key
+    }
+  }
+}
+
+# --- 5. O Gatilho (S3 Trigger) ---
+# Dá permissão para o S3 invocar esta Lambda
+resource "aws_lambda_permission" "allow_s3" {
+  statement_id  = "AllowS3Invoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.process_audio.function_name
+  principal     = "s3.amazonaws.com"
+  source_arn    = aws_s3_bucket.media_bucket.arn
+}
+
+# Configura o S3 para avisar a Lambda quando chegar arquivo novo
+resource "aws_s3_bucket_notification" "bucket_notification" {
+  bucket = aws_s3_bucket.media_bucket.id
+
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.process_audio.arn
+    events              = ["s3:ObjectCreated:*"] # Qualquer criação (Put, Post, Copy)
+    filter_suffix       = ".mp3" # Opcional: só aciona se for mp3
+  }
+
+  depends_on = [aws_lambda_permission.allow_s3]
+}

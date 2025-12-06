@@ -15,3 +15,9 @@ variable "environment" {
   type        = string
   default     = "dev"
 }
+
+variable "gemini_api_key" {
+  description = "Chave de API do Google Gemini"
+  type        = string
+  sensitive   = true # Evita que a chave apareça nos logs do terminal
+}
