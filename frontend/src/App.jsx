@@ -1,13 +1,13 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, Square, RefreshCw, Cpu, Activity, CheckCircle, AlertTriangle } from 'lucide-react';
 
 // --- CONFIGURAÇÃO ---
-// COLE SUA URL AQUI (ex: https://xyz.execute-api.us-east-1.amazonaws.com)
+// ⚠️ TROQUE PELA SUA URL DO TERRAFORM (sem a barra / no final)
 const API_BASE_URL = "https://731flytpdj.execute-api.us-east-1.amazonaws.com"; 
 
 export default function App() {
-  const [status, setStatus] = useState('idle'); // idle, recording, processing, completed, error
+  const [status, setStatus] = useState('idle'); 
   const [sessionData, setSessionData] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   
@@ -16,6 +16,7 @@ export default function App() {
 
   // --- LÓGICA DE ÁUDIO ---
   const startRecording = async () => {
+    console.log("Iniciando gravação...");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
@@ -29,20 +30,22 @@ export default function App() {
       mediaRecorderRef.current.start();
       setStatus('recording');
     } catch (err) {
-      alert("Erro ao acessar microfone. Verifique as permissões.");
+      alert("Erro ao acessar microfone. Verifique se o site é HTTPS ou localhost.");
       console.error(err);
     }
   };
 
   const stopRecording = () => {
+    console.log("Parando gravação...");
     if (mediaRecorderRef.current) {
       mediaRecorderRef.current.stop();
       setStatus('processing');
     }
   };
 
-  // --- INTEGRAÇÃO COM BACKEND ---
+  // --- INTEGRAÇÃO ---
   const handleUpload = async () => {
+    console.log("Enviando áudio...");
     const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mpeg' });
     
     try {
@@ -68,7 +71,7 @@ export default function App() {
     } catch (err) {
       console.error(err);
       setStatus('error');
-      setErrorMsg("Falha na conexão com a IA.");
+      setErrorMsg("Falha na conexão. Verifique o console (F12).");
     }
   };
 
@@ -79,6 +82,7 @@ export default function App() {
       try {
         const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}`);
         const data = await res.json();
+        console.log("Polling status:", data.status);
 
         if (data.status === 'COMPLETED') {
           clearInterval(interval);
@@ -87,13 +91,13 @@ export default function App() {
         } else if (data.status === 'ERROR') {
           clearInterval(interval);
           setStatus('error');
-          setErrorMsg(data.error_message || "Erro desconhecido na IA");
+          setErrorMsg(data.error_message);
         }
         
-        if (attempts > 30) { // Timeout de 60s
+        if (attempts > 30) { 
           clearInterval(interval);
           setStatus('error');
-          setErrorMsg("A IA demorou muito para responder.");
+          setErrorMsg("Timeout: IA demorou muito.");
         }
       } catch (e) {
         console.error(e);
@@ -101,162 +105,97 @@ export default function App() {
     }, 2000);
   };
 
-  // --- COMPONENTES VISUAIS ---
+  // --- RENDERIZAÇÃO ---
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden bg-dark-bg text-white font-sans">
       
-      {/* BACKGROUND EFFECTS */}
-      <div className="absolute inset-0 z-0 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-neon-purple/20 blur-[120px] rounded-full" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-neon-blue/20 blur-[120px] rounded-full" />
+      {/* HEADER */}
+      <div className="z-10 mb-12 text-center">
+        <h1 className="text-5xl font-mono font-bold tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-purple">
+          MOCK.AI
+        </h1>
+        <p className="text-gray-400 mt-2 font-light tracking-widest text-sm">SIMULADOR NEURAL v1.0</p>
       </div>
 
-      <div className="z-10 w-full max-w-2xl text-center">
+      <AnimatePresence mode="wait">
         
-        {/* HEADER */}
-        <motion.div 
-          initial={{ y: -50, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          className="mb-12"
-        >
-          <h1 className="text-5xl font-mono font-bold tracking-tighter bg-gradient-to-r from-neon-blue to-neon-purple bg-clip-text text-transparent">
-            MOCK.AI
-          </h1>
-          <p className="text-gray-400 mt-2 font-light tracking-widest text-sm">
-            SIMULADOR DE ENTREVISTA NEURAL
-          </p>
-        </motion.div>
-
-        {/* MAIN CONTENT AREA */}
-        <AnimatePresence mode="wait">
-          
-          {/* ESTADO 1: IDLE / RECORDING */}
-          {(status === 'idle' || status === 'recording') && (
-            <motion.div 
-              key="recorder"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="flex flex-col items-center"
+        {/* ESTADO 1: GRAVADOR (BOTÃO) */}
+        {(status === 'idle' || status === 'recording') && (
+          <motion.div 
+            key="recorder"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="flex flex-col items-center z-10"
+          >
+            <button
+              onClick={status === 'idle' ? startRecording : stopRecording}
+              className={`w-32 h-32 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
+                status === 'recording' 
+                  ? 'border-red-500 bg-red-500/20 shadow-[0_0_40px_red] animate-pulse' 
+                  : 'border-neon-blue hover:bg-neon-blue/10 hover:shadow-[0_0_40px_#00f3ff]'
+              }`}
             >
-              <div className="relative group">
-                {/* Animação do "Pulse" ao gravar */}
-                {status === 'recording' && (
-                  <motion.div 
-                    animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
-                    transition={{ repeat: Infinity, duration: 1.5 }}
-                    className="absolute inset-0 bg-red-500 rounded-full blur-xl opacity-50"
-                  />
-                )}
-                
-                <button
-                  onClick={status === 'idle' ? startRecording : stopRecording}
-                  className={`relative w-32 h-32 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
-                    status === 'recording' 
-                      ? 'border-red-500 bg-red-500/10 text-red-500 shadow-[0_0_30px_rgba(239,68,68,0.4)]' 
-                      : 'border-neon-blue bg-neon-blue/10 text-neon-blue hover:shadow-[0_0_30px_rgba(0,243,255,0.4)] hover:scale-105'
-                  }`}
-                >
-                  {status === 'idle' ? <Mic size={40} /> : <Square size={40} fill="currentColor" />}
-                </button>
+              {status === 'idle' ? <Mic size={40} className="text-neon-blue"/> : <Square size={40} className="text-red-500"/>}
+            </button>
+            <p className="mt-8 text-gray-400 font-mono">
+              {status === 'idle' ? "CLIQUE PARA INICIAR" : "GRAVANDO... CLIQUE PARA PARAR"}
+            </p>
+          </motion.div>
+        )}
+
+        {/* ESTADO 2: PROCESSANDO (SPINNER) */}
+        {status === 'processing' && (
+          <motion.div 
+            key="processing"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="flex flex-col items-center z-10"
+          >
+            <Cpu size={64} className="text-neon-purple animate-bounce mb-4" />
+            <h2 className="text-2xl font-bold">Processando...</h2>
+          </motion.div>
+        )}
+
+        {/* ESTADO 3: RESULTADOS */}
+        {status === 'completed' && sessionData && (
+          <motion.div 
+            key="results"
+            initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-2xl z-10 space-y-4"
+          >
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-6 border border-white/10 rounded-xl bg-card-bg text-center">
+                <div className="text-gray-400 text-xs uppercase">Técnica</div>
+                <div className="text-4xl font-bold text-neon-blue mt-2">{sessionData.ai_feedback.technical_score}</div>
               </div>
+              <div className="p-6 border border-white/10 rounded-xl bg-card-bg text-center">
+                <div className="text-gray-400 text-xs uppercase">Clareza</div>
+                <div className="text-4xl font-bold text-neon-purple mt-2">{sessionData.ai_feedback.clarity_score}</div>
+              </div>
+            </div>
 
-              <p className="mt-8 text-lg font-mono text-gray-300">
-                {status === 'idle' ? "Clique para começar a responder" : "Gravando... Clique para finalizar"}
-              </p>
-            </motion.div>
-          )}
+            <div className="p-6 border-l-4 border-neon-blue bg-card-bg rounded-r-xl">
+              <h3 className="text-gray-400 text-xs uppercase mb-2 flex gap-2"><CheckCircle size={14}/> Feedback</h3>
+              <p className="text-gray-300 leading-relaxed">{sessionData.ai_feedback.feedback}</p>
+            </div>
 
-          {/* ESTADO 2: PROCESSING (O "GIF" GERADO POR CÓDIGO) */}
-          {status === 'processing' && (
-            <motion.div 
-              key="processing"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex flex-col items-center"
+            <button 
+              onClick={() => setStatus('idle')}
+              className="w-full py-4 mt-4 border border-white/20 rounded-lg hover:bg-white/10 transition-colors flex justify-center gap-2 items-center"
             >
-              <div className="w-32 h-32 flex items-center justify-center relative">
-                <motion.div 
-                  animate={{ rotate: 360 }}
-                  transition={{ repeat: Infinity, duration: 3, ease: "linear" }}
-                  className="absolute inset-0 border-t-2 border-neon-purple rounded-full"
-                />
-                <motion.div 
-                  animate={{ rotate: -360 }}
-                  transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-                  className="absolute inset-2 border-r-2 border-neon-blue rounded-full"
-                />
-                <Cpu size={40} className="text-white animate-pulse" />
-              </div>
-              <h2 className="mt-6 text-2xl font-bold text-white">Analisando Perfil</h2>
-              <p className="text-neon-blue animate-pulse mt-2">Processando voz e contexto...</p>
-            </motion.div>
-          )}
+              <RefreshCw size={16}/> Nova Entrevista
+            </button>
+          </motion.div>
+        )}
 
-          {/* ESTADO 3: COMPLETED */}
-          {status === 'completed' && sessionData && (
-            <motion.div 
-              key="results"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="w-full text-left"
-            >
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <ScoreCard title="Técnica" value={sessionData.ai_feedback.technical_score} color="text-neon-blue" />
-                <ScoreCard title="Clareza" value={sessionData.ai_feedback.clarity_score} color="text-neon-purple" />
-              </div>
+        {/* ESTADO 4: ERRO */}
+        {status === 'error' && (
+           <div className="text-red-500 text-center z-10">
+             <AlertTriangle size={48} className="mx-auto mb-2"/>
+             <p>{errorMsg}</p>
+             <button onClick={() => setStatus('idle')} className="mt-4 underline">Tentar de novo</button>
+           </div>
+        )}
 
-              <div className="bg-card-bg border border-white/10 p-6 rounded-xl backdrop-blur-sm mb-6">
-                <h3 className="text-gray-400 text-sm uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <Activity size={16} /> Resumo
-                </h3>
-                <p className="text-gray-200 leading-relaxed">
-                  {sessionData.ai_feedback.summary}
-                </p>
-              </div>
-
-              <div className="bg-card-bg border-l-4 border-neon-blue p-6 rounded-r-xl backdrop-blur-sm">
-                 <h3 className="text-gray-400 text-sm uppercase tracking-wider mb-2 flex items-center gap-2">
-                  <CheckCircle size={16} /> Feedback
-                </h3>
-                <p className="text-gray-300 text-sm leading-relaxed">
-                  {sessionData.ai_feedback.feedback}
-                </p>
-              </div>
-
-              <button 
-                onClick={() => setStatus('idle')}
-                className="mt-8 w-full py-4 border border-white/20 rounded-lg hover:bg-white/5 transition-colors flex items-center justify-center gap-2 font-mono text-sm"
-              >
-                <RefreshCw size={16} /> NOVA ENTREVISTA
-              </button>
-            </motion.div>
-          )}
-
-           {/* ESTADO 4: ERROR */}
-           {status === 'error' && (
-            <motion.div key="error" className="text-center text-red-400">
-              <AlertTriangle size={64} className="mx-auto mb-4" />
-              <h2 className="text-xl font-bold">Erro no Processamento</h2>
-              <p className="mt-2">{errorMsg}</p>
-              <button onClick={() => setStatus('idle')} className="mt-6 underline">Tentar Novamente</button>
-            </motion.div>
-          )}
-
-        </AnimatePresence>
-      </div>
-    </div>
-  );
-}
-
-// Subcomponente simples para os Cards de Nota
-function ScoreCard({ title, value, color }) {
-  return (
-    <div className="bg-card-bg border border-white/10 p-6 rounded-xl flex flex-col items-center justify-center relative overflow-hidden group">
-      <div className={`absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity bg-current ${color}`} />
-      <span className="text-gray-400 text-sm uppercase tracking-wider">{title}</span>
-      <span className={`text-5xl font-bold mt-2 ${color}`}>{value}</span>
+      </AnimatePresence>
     </div>
   );
 }
