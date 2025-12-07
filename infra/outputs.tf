@@ -36,3 +36,7 @@ output "cloudfront_url" {
   description = "URL Segura (HTTPS) do site"
   value       = aws_cloudfront_distribution.s3_distribution.domain_name
 }
+output "cloudfront_distribution_id" {
+  description = "ID da distribuição do CloudFront para invalidação de cache"
+  value       = aws_cloudfront_distribution.s3_distribution.id
+}
