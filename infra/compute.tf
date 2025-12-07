@@ -1,8 +1,8 @@
 # --- 1. Preparação do Código (Zip) ---
 data "archive_file" "lambda_zip" {
-  type        = "zip"
+  type = "zip"
   # MUDANÇA AQUI: Aponta para a pasta de build, não para o src original
-  source_dir  = "../build_package" 
+  source_dir  = "../build_package"
   output_path = "lambda_function.zip"
 }
 
@@ -13,8 +13,8 @@ resource "aws_iam_role" "lambda_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
       Principal = { Service = "lambda.amazonaws.com" }
     }]
   })
@@ -30,20 +30,20 @@ resource "aws_iam_role_policy" "lambda_policy" {
     Statement = [
       # Permissão para criar Logs (CloudWatch)
       {
-        Effect = "Allow"
-        Action = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
         Resource = "arn:aws:logs:*:*:*"
       },
       # Permissão para Escrever/Ler no DynamoDB
       {
-        Effect = "Allow"
-        Action = ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:GetItem"]
+        Effect   = "Allow"
+        Action   = ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:GetItem"]
         Resource = aws_dynamodb_table.sessions_table.arn
       },
       # Permissão para Gerar URL de Upload no S3
       {
-        Effect = "Allow"
-        Action = ["s3:PutObject", "s3:GetObject"]
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:GetObject"]
         Resource = "${aws_s3_bucket.media_bucket.arn}/*"
       }
     ]
@@ -54,14 +54,14 @@ resource "aws_iam_role_policy" "lambda_policy" {
 resource "aws_lambda_function" "get_upload_url" {
   function_name = "${var.project_name}-get-upload-url-${var.environment}"
   role          = aws_iam_role.lambda_role.arn
-  
+
   # Define o arquivo zipado e o hash (para saber quando atualizar)
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  
+
   runtime = "python3.11"
   handler = "handlers.get_upload_url.lambda_handler" # Caminho: pasta.arquivo.funcao
-  timeout = 10 # Segundos
+  timeout = 10                                       # Segundos
 
   environment {
     variables = {
@@ -75,13 +75,13 @@ resource "aws_lambda_function" "get_upload_url" {
 resource "aws_lambda_function" "process_audio" {
   function_name = "${var.project_name}-process-audio-${var.environment}"
   role          = aws_iam_role.lambda_role.arn
-  
+
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  
-  runtime = "python3.11"
-  handler = "handlers.process_audio.lambda_handler"
-  timeout = 60 # IA demora mais que APIs normais, damos 1 minuto
+
+  runtime     = "python3.11"
+  handler     = "handlers.process_audio.lambda_handler"
+  timeout     = 60  # IA demora mais que APIs normais, damos 1 minuto
   memory_size = 256 # Um pouco mais de RAM para processar arquivos
 
   environment {
@@ -109,7 +109,7 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
   lambda_function {
     lambda_function_arn = aws_lambda_function.process_audio.arn
     events              = ["s3:ObjectCreated:*"] # Qualquer criação (Put, Post, Copy)
-    filter_suffix       = ".mp3" # Opcional: só aciona se for mp3
+    filter_suffix       = ".mp3"                 # Opcional: só aciona se for mp3
   }
 
   depends_on = [aws_lambda_permission.allow_s3]
@@ -119,10 +119,10 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
 resource "aws_lambda_function" "get_session" {
   function_name = "${var.project_name}-get-session-${var.environment}"
   role          = aws_iam_role.lambda_role.arn
-  
+
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  
+
   runtime = "python3.11"
   handler = "handlers.get_session.lambda_handler"
   timeout = 5
