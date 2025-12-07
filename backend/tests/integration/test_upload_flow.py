@@ -46,7 +46,12 @@ def run_e2e_test():
 
     # 1. Obter URL de Upload (Handshake)
     print("\n1️⃣  Solicitando URL de Upload...")
-    payload = {"body": json.dumps({"candidate_name": "E2E Tester"})}
+    payload = {
+        "body": json.dumps({
+            "candidate_name": "E2E Tester Contextual",
+            "job_description": "Requisitos: Experiência avançada com Python e AWS Lambda."
+        })
+    }
     try:
         response = lambda_client.invoke(
             FunctionName=FUNCTION_GET_URL,
