@@ -1,0 +1,97 @@
+name: Deploy Production (CD)
+
+on:
+  push:
+    branches:
+      - main
+      # - develop # Descomente se quiser deploy automático de dev também
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build & Deploy Full Stack
+    runs-on: ubuntu-latest
+
+    steps:
+      # --- 1. Setup Inicial ---
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Setup Python 3.11 (AWS Lambda Compatible)
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Setup Node.js 18
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_wrapper: false # Importante para ler outputs depois
+
+      # --- 2. Build do Backend (Python) ---
+      # Cria a pasta build_package na raiz (onde o Terraform espera encontrar)
+      - name: Build Backend Artifacts
+        run: |
+          echo "Criando pacote de deploy..."
+          mkdir -p build_package
+
+          # 1. Instala dependências do requirements.txt na pasta alvo
+          pip install -r backend/requirements.txt -t build_package --upgrade
+
+          # 2. Copia o código fonte (handlers e core) para a pasta alvo
+          # Atenção: ajustado para sua estrutura (backend/src/...)
+          cp -r backend/src/* build_package/
+
+          # Limpeza de arquivos desnecessários para deixar a Lambda leve
+          cd build_package
+          find . -type d -name "__pycache__" -exec rm -rf {} +
+          echo "Build do Backend concluído."
+
+      # --- 3. Deploy da Infraestrutura (Terraform) ---
+      - name: Terraform Apply
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          TF_VAR_gemini_api_key: ${{ secrets.TF_VAR_gemini_api_key }}
+        working-directory: ./infra
+        run: |
+          terraform init
+          terraform validate
+          terraform apply -auto-approve
+
+          # Exporta outputs para usar no Frontend
+          echo "VITE_API_URL=$(terraform output -raw api_endpoint)" >> $GITHUB_ENV
+          echo "S3_BUCKET=$(terraform output -raw frontend_bucket_name)" >> $GITHUB_ENV
+          echo "CF_DIST_ID=$(terraform output -raw cloudfront_distribution_id)" >> $GITHUB_ENV
+
+      # --- 4. Build do Frontend (React) ---
+      - name: Build Frontend
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run build
+        env:
+          # Injeta a URL da API que acabamos de criar/atualizar
+          VITE_API_URL: ${{ env.VITE_API_URL }}
+
+      # --- 5. Upload do Frontend & Limpeza de Cache ---
+      - name: Deploy Frontend to S3 & Invalidate CloudFront
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+        run: |
+          # Sincroniza arquivos (apaga o que não existe mais)
+          aws s3 sync ./frontend/dist s3://${{ env.S3_BUCKET }} --delete
+
+          # Limpa o cache do CloudFront para usuários verem a nova versão
+          if [ -n "${{ env.CF_DIST_ID }}" ]; then
+            aws cloudfront create-invalidation --distribution-id ${{ env.CF_DIST_ID }} --paths "/*"
+          fi
