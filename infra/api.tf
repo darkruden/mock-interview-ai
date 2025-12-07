@@ -2,7 +2,7 @@
 resource "aws_apigatewayv2_api" "main_api" {
   name          = "${var.project_name}-api-${var.environment}"
   protocol_type = "HTTP"
-  
+
   # Configuração de CORS (Vital para o Frontend funcionar)
   cors_configuration {
     allow_origins = ["*"] # Em produção, coloque o domínio do seu site
@@ -23,17 +23,17 @@ resource "aws_apigatewayv2_stage" "default_stage" {
 
 # Integração para POST /sessions (Handshake)
 resource "aws_apigatewayv2_integration" "upload_integration" {
-  api_id           = aws_apigatewayv2_api.main_api.id
-  integration_type = "AWS_PROXY"
-  integration_uri  = aws_lambda_function.get_upload_url.invoke_arn
+  api_id                 = aws_apigatewayv2_api.main_api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.get_upload_url.invoke_arn
   payload_format_version = "2.0"
 }
 
 # Integração para GET /sessions/{id} (Consulta)
 resource "aws_apigatewayv2_integration" "session_integration" {
-  api_id           = aws_apigatewayv2_api.main_api.id
-  integration_type = "AWS_PROXY"
-  integration_uri  = aws_lambda_function.get_session.invoke_arn
+  api_id                 = aws_apigatewayv2_api.main_api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.get_session.invoke_arn
   payload_format_version = "2.0"
 }
 
