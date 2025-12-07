@@ -5,7 +5,7 @@ resource "aws_s3_bucket" "frontend_bucket" {
   bucket        = "${var.project_name}-frontend-${var.environment}-${random_id.bucket_suffix.hex}"
   force_destroy = true # Permite deletar o bucket mesmo cheio (útil para dev)
 }
-
+#comentario de teste do pull request, ignore
 # 2. Configura o bucket para agir como um Site Estático
 resource "aws_s3_bucket_website_configuration" "frontend_website" {
   bucket = aws_s3_bucket.frontend_bucket.id
