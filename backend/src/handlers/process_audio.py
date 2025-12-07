@@ -27,6 +27,11 @@ def lambda_handler(event, context):
             session_id = s3_key.split("/")[1]
             print(f"Processando Sessão: {session_id}")
 
+            db_response = table.get_item(Key={'session_id': session_id})
+            job_description = db_response.get('Item', {}).get('job_description', "")
+            
+            update_status(session_id, "PROCESSING")
+
             update_status(session_id, "PROCESSING")
 
             # --- CORREÇÃO 1: NOME DE ARQUIVO ÚNICO ---
@@ -56,24 +61,40 @@ def lambda_handler(event, context):
             model = genai.GenerativeModel("gemini-2.5-flash")
             
             # --- CORREÇÃO 2: PROMPT ANTI-ALUCINAÇÃO ---
-            prompt = """
+            base_prompt = """
             Você é um Recrutador Técnico Sênior e Auditor.
             Sua tarefa é analisar o áudio fornecido.
+            """
+
+            context_instruction = ""
+            if job_description:
+                context_instruction = f"""
+                CONTEXTO DA VAGA (IMPORTANTE):
+                O candidato está se aplicando para a seguinte vaga:
+                "{job_description}"
+                
+                Avalie se o candidato demonstra os conhecimentos exigidos na descrição acima.
+                Se ele fugir do tema da vaga, penalize a nota técnica.
+                """
+
+            prompt = f"""
+            {base_prompt}
+            {context_instruction}
 
             REGRAS CRÍTICAS (ANTI-ALUCINAÇÃO):
             1. Você deve analisar APENAS o que ouvir neste áudio específico. NÃO invente tecnologias que o candidato não mencionou.
             2. Se o áudio for silêncio, ruído ou inaudível, retorne o JSON com "error": "AUDIO_INAUDIVEL".
-            3. Se o candidato falar pouco, analise apenas o pouco que ele disse. Não "encha linguiça".
+            3. Se o candidato falar pouco, analise apenas o pouco que ele disse.
 
             Formato de Resposta (JSON Puro):
-            {
+            {{
                 "technical_score": (0-100),
                 "clarity_score": (0-100),
                 "summary": "Resumo fiel do que foi dito",
                 "strengths": ["Ponto forte 1"],
                 "weaknesses": ["Ponto fraco 1"],
-                "feedback": "Feedback construtivo"
-            }
+                "feedback": "Feedback construtivo focado na vaga (se houver)"
+            }}
             """
             
             result = model.generate_content([myfile, prompt])
