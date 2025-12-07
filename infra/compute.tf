@@ -1,7 +1,8 @@
 # --- 1. Preparação do Código (Zip) ---
 data "archive_file" "lambda_zip" {
   type        = "zip"
-  source_dir  = "../src"          # Pega todo o código da pasta src
+  # MUDANÇA AQUI: Aponta para a pasta de build, não para o src original
+  source_dir  = "../build_package" 
   output_path = "lambda_function.zip"
 }
 

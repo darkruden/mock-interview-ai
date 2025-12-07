@@ -9,6 +9,7 @@ venv/
 # Terraform
 .terraform/
 *.tfstate
+*.zip
 *.tfstate.backup
 .terraform.lock.hcl
 *.tfvars
@@ -18,3 +19,4 @@ venv/
 .idea/
 # pessoal
 docs/
+build_package/

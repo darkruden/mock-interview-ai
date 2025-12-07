@@ -44,7 +44,7 @@ def lambda_handler(event, context):
             print("Áudio baixado com sucesso.")
 
             # 4. Enviar para o Gemini (Multimodal)
-            # O Gemini 1.5 Flash ouve áudio nativamente!
+            # O Gemini 2.5 Flash ouve áudio nativamente!
             print("Enviando para o Gemini...")
             myfile = genai.upload_file(TEMP_PATH)
             
@@ -54,21 +54,23 @@ def lambda_handler(event, context):
                 time.sleep(1)
                 myfile = genai.get_file(myfile.name)
 
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            model = genai.GenerativeModel("gemini-2.5-flash")
             
             # O Prompt de Engenharia (A "Alma" do Recrutador)
             prompt = """
-            Você é um Recrutador Técnico Sênior experiente. 
-            Analise este áudio de uma resposta de entrevista.
+            Você é um Recrutador Técnico Sênior. Ouça o áudio com atenção.
             
-            Retorne APENAS um JSON (sem markdown, sem ```json) com este formato exato:
+            PASSO 1: Verificação de Áudio
+            - Se o áudio estiver mudo, silencioso ou inaudível, retorne um JSON com o campo "error": "SILENCE_DETECTED" e pare.
+            
+            PASSO 2: Análise (Apenas se houver fala)
+            - Analise a resposta do candidato.
+            - Retorne o JSON neste formato:
             {
-                "technical_score": (nota de 0 a 100),
-                "clarity_score": (nota de 0 a 100),
-                "summary": "Resumo do que o candidato falou em 1 frase",
-                "strengths": ["ponto forte 1", "ponto forte 2"],
-                "weaknesses": ["ponto fraco 1"],
-                "feedback": "Feedback construtivo final para o candidato"
+                "technical_score": (0-100),
+                "clarity_score": (0-100),
+                "summary": "Resumo...",
+                "feedback": "Feedback..."
             }
             """
             
