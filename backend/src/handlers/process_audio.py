@@ -53,7 +53,7 @@ def lambda_handler(event, context):
                 myfile = genai.get_file(myfile.name)
 
             # Usando o modelo V2 (Mais recente)
-            model = genai.GenerativeModel("gemini-1.5-flash-002")
+            model = genai.GenerativeModel("gemini-2.5-flash")
             
             # --- CORREÇÃO 2: PROMPT ANTI-ALUCINAÇÃO ---
             prompt = """
