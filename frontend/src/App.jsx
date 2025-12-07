@@ -10,6 +10,7 @@ export default function App() {
   const [status, setStatus] = useState('idle'); 
   const [sessionData, setSessionData] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [jobDescription, setJobDescription] = useState("");
   
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -52,7 +53,7 @@ export default function App() {
       // 1. Handshake
       const initRes = await fetch(`${API_BASE_URL}/sessions`, {
         method: 'POST',
-        body: JSON.stringify({ candidate_name: "React User" })
+        body: JSON.stringify({ candidate_name: "React User", job_description: jobDescription })
       });
       const initData = await initRes.json();
       
@@ -126,6 +127,18 @@ export default function App() {
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="flex flex-col items-center z-10"
           >
+          {status === 'idle' && (
+              <div className="w-full max-w-md mb-8 px-4">
+                <textarea
+                  className="w-full bg-black/40 text-white border border-neon-blue/30 rounded-lg p-4 focus:outline-none focus:border-neon-blue focus:ring-1 focus:ring-neon-blue transition-all resize-none placeholder-gray-500 text-sm font-mono"
+                  rows="3"
+                  placeholder="[OPCIONAL] Cole a Descrição da Vaga aqui..."
+                  value={jobDescription}
+                  onChange={(e) => setJobDescription(e.target.value)}
+                />
+              </div>
+            )}
+
             <button
               onClick={status === 'idle' ? startRecording : stopRecording}
               className={`w-32 h-32 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
