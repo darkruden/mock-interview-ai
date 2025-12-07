@@ -16,3 +16,8 @@ output "lambda_function_name" {
   description = "Nome da função Lambda criada"
   value       = aws_lambda_function.get_upload_url.function_name
 }
+
+output "api_endpoint" {
+  description = "URL base da API pública"
+  value       = aws_apigatewayv2_api.main_api.api_endpoint
+}

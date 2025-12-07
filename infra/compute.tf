@@ -114,3 +114,22 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
 
   depends_on = [aws_lambda_permission.allow_s3]
 }
+
+# --- 6. Lambda de Leitura (Get Session) ---
+resource "aws_lambda_function" "get_session" {
+  function_name = "${var.project_name}-get-session-${var.environment}"
+  role          = aws_iam_role.lambda_role.arn
+  
+  filename         = data.archive_file.lambda_zip.output_path
+  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+  
+  runtime = "python3.11"
+  handler = "handlers.get_session.lambda_handler"
+  timeout = 5
+
+  environment {
+    variables = {
+      TABLE_NAME = aws_dynamodb_table.sessions_table.name
+    }
+  }
+}
