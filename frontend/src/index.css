@@ -1,0 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=JetBrains+Mono:wght@400;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-dark-bg text-white font-sans antialiased;
+  /* Fundo sutil futurista */
+  background-image: radial-gradient(circle at 50% 50%, #1a1a1a 0%, #050505 70%);
+  min-height: 100vh;
+}

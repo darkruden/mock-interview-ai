@@ -2,7 +2,7 @@
 Write-Host "🚀 Iniciando Build do Backend..." -ForegroundColor Cyan
 
 $srcDir = "src"
-$buildDir = "build_package"
+$buildDir = "../build_package"
 
 # 1. Limpa e Recria a pasta de build
 if (Test-Path $buildDir) {
