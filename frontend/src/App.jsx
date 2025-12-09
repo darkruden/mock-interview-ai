@@ -8,7 +8,7 @@ import '@aws-amplify/ui-react/styles.css';
 import { fetchAuthSession } from 'aws-amplify/auth';
 
 // --- CONFIGURAÇÃO ---
-const API_BASE_URL = "https://731flytpdj.execute-api.us-east-1.amazonaws.com"; 
+const API_BASE_URL = "https://731flytpdj.execute-api.us-east-1.amazonaws.com";
 
 // --- PERSONALIZAÇÃO DO FORMULÁRIO (A CORREÇÃO) ---
 const formFields = {
@@ -48,16 +48,16 @@ const formFields = {
 }
 
 export default function App() {
-  const [status, setStatus] = useState('idle'); 
+  const [status, setStatus] = useState('idle');
   const [sessionData, setSessionData] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [jobDescription, setJobDescription] = useState(""); // Contexto da vaga
-  
+
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
 
-  
+
   // --- LÓGICA DE ÁUDIO ---
   const startRecording = async () => {
     console.log("Iniciando gravação...");
@@ -87,7 +87,7 @@ export default function App() {
     }
   };
 
-    const getAuthToken = async () => {
+  const getAuthToken = async () => {
     try {
       const session = await fetchAuthSession();
       return session.tokens?.idToken?.toString();
@@ -101,10 +101,10 @@ export default function App() {
   const handleUpload = async () => {
     console.log("Enviando áudio...");
     const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mpeg' });
-    
+
     try {
       const token = await getAuthToken(); // [+] Pega o token
-      if (!token) throw new Error("Usuário não autenticado"); 
+      if (!token) throw new Error("Usuário não autenticado");
 
       // 1. Handshake
       const initRes = await fetch(`${API_BASE_URL}/sessions`, {
@@ -113,13 +113,13 @@ export default function App() {
           'Content-Type': 'application/json',
           'Authorization': token
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           candidate_name: "React User",
           job_description: jobDescription
         })
       });
       const initData = await initRes.json();
-      
+
       if (!initData.upload_url) throw new Error("Falha na API de upload");
 
       // 2. Upload S3
@@ -145,12 +145,12 @@ export default function App() {
       attempts++;
       try {
         const token = await getAuthToken(); // [+] Pega o token
-        if (!token) throw new Error("Usuário não autenticado"); 
+        if (!token) throw new Error("Usuário não autenticado");
 
         const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
-           headers: { 
-             'Authorization': token // [+] Autorização aqui também
-           }
+          headers: {
+            'Authorization': token // [+] Autorização aqui também
+          }
         });
         const data = await res.json();
         console.log("Polling status:", data.status);
@@ -164,8 +164,8 @@ export default function App() {
           setStatus('error');
           setErrorMsg(data.error_message);
         }
-        
-        if (attempts > 30) { 
+
+        if (attempts > 30) {
           clearInterval(interval);
           setStatus('error');
           setErrorMsg("Timeout: IA demorou muito.");
@@ -178,17 +178,17 @@ export default function App() {
 
   // --- RENDERIZAÇÃO ---
   return (
-    <Authenticator 
+    <Authenticator
       formFields={formFields}
       loginMechanisms={['email']}
       signUpAttributes={['email']} // Importante: Pede e-mail no cadastro
     >
       {({ signOut, user }) => (
         <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden bg-dark-bg text-white font-sans">
-          
+
           {/* HEADER */}
           <div className="z-10 mb-12 text-center relative w-full max-w-2xl">
-            <button 
+            <button
               onClick={signOut}
               className="absolute right-0 top-0 text-xs text-gray-500 hover:text-red-400 flex items-center gap-1 transition-colors"
             >
@@ -202,10 +202,10 @@ export default function App() {
           </div>
 
           <AnimatePresence mode="wait">
-            
+
             {/* ESTADO 1: GRAVADOR (BOTÃO) */}
             {(status === 'idle' || status === 'recording') && (
-              <motion.div 
+              <motion.div
                 key="recorder"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="flex flex-col items-center z-10"
@@ -225,13 +225,12 @@ export default function App() {
 
                 <button
                   onClick={status === 'idle' ? startRecording : stopRecording}
-                  className={`w-32 h-32 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
-                    status === 'recording' 
-                      ? 'border-red-500 bg-red-500/20 shadow-[0_0_40px_red] animate-pulse' 
-                      : 'border-neon-blue hover:bg-neon-blue/10 hover:shadow-[0_0_40px_#00f3ff]'
-                  }`}
+                  className={`w-32 h-32 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${status === 'recording'
+                    ? 'border-red-500 bg-red-500/20 shadow-[0_0_40px_red] animate-pulse'
+                    : 'border-neon-blue hover:bg-neon-blue/10 hover:shadow-[0_0_40px_#00f3ff]'
+                    }`}
                 >
-                  {status === 'idle' ? <Mic size={40} className="text-neon-blue"/> : <Square size={40} className="text-red-500"/>}
+                  {status === 'idle' ? <Mic size={40} className="text-neon-blue" /> : <Square size={40} className="text-red-500" />}
                 </button>
                 <p className="mt-8 text-gray-400 font-mono">
                   {status === 'idle' ? "CLIQUE PARA INICIAR" : "GRAVANDO... CLIQUE PARA PARAR"}
@@ -241,7 +240,7 @@ export default function App() {
 
             {/* ESTADO 2: PROCESSANDO */}
             {status === 'processing' && (
-              <motion.div 
+              <motion.div
                 key="processing"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                 className="flex flex-col items-center z-10"
@@ -253,7 +252,7 @@ export default function App() {
 
             {/* ESTADO 3: RESULTADOS */}
             {status === 'completed' && sessionData && (
-              <motion.div 
+              <motion.div
                 key="results"
                 initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }}
                 className="w-full max-w-2xl z-10 space-y-4"
@@ -270,11 +269,11 @@ export default function App() {
                 </div>
 
                 <div className="p-6 border-l-4 border-neon-blue bg-card-bg rounded-r-xl">
-                  <h3 className="text-gray-400 text-xs uppercase mb-2 flex gap-2"><CheckCircle size={14}/> Feedback</h3>
+                  <h3 className="text-gray-400 text-xs uppercase mb-2 flex gap-2"><CheckCircle size={14} /> Feedback</h3>
                   <p className="text-gray-300 leading-relaxed text-left">{sessionData.ai_feedback.feedback}</p>
                 </div>
                 {sessionData.ai_feedback.follow_up_question && (
-                  <motion.div 
+                  <motion.div
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: 0.3 }}
@@ -289,22 +288,38 @@ export default function App() {
                   </motion.div>
                 )}
 
-                <button 
-                  onClick={() => setStatus('idle')}
-                  className="w-full py-4 mt-4 border border-white/20 rounded-lg hover:bg-white/10 transition-colors flex justify-center gap-2 items-center"
-                >
-                  <RefreshCw size={16}/> Responder / Nova Entrevista
-                </button>
+                <div className="flex gap-3 mt-6">
+
+                  {/* BOTÃO 1: RESPONDER (Mantém o contexto e grava novo áudio) */}
+                  <button
+                    onClick={() => setStatus('idle')}
+                    className="flex-1 py-4 bg-neon-purple/20 border border-neon-purple text-neon-purple hover:bg-neon-purple hover:text-white rounded-lg transition-all font-bold flex justify-center gap-2 items-center"
+                  >
+                    <Activity size={18} /> Aceitar Desafio
+                  </button>
+
+                  {/* BOTÃO 2: NOVA ENTREVISTA (Limpa tudo) */}
+                  <button
+                    onClick={() => {
+                      setSessionData(null);
+                      setJobDescription(""); // Limpa o contexto da vaga
+                      setStatus('idle');
+                    }}
+                    className="flex-1 py-4 border border-white/20 text-gray-300 hover:bg-white/10 rounded-lg transition-colors flex justify-center gap-2 items-center"
+                  >
+                    <RefreshCw size={18} /> Zerar Tudo
+                  </button>
+                </div>
               </motion.div>
             )}
 
             {/* ESTADO 4: ERRO */}
             {status === 'error' && (
-               <div className="text-red-500 text-center z-10">
-                 <AlertTriangle size={48} className="mx-auto mb-2"/>
-                 <p>{errorMsg}</p>
-                 <button onClick={() => setStatus('idle')} className="mt-4 underline">Tentar de novo</button>
-               </div>
+              <div className="text-red-500 text-center z-10">
+                <AlertTriangle size={48} className="mx-auto mb-2" />
+                <p>{errorMsg}</p>
+                <button onClick={() => setStatus('idle')} className="mt-4 underline">Tentar de novo</button>
+              </div>
             )}
 
           </AnimatePresence>
