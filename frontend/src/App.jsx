@@ -273,12 +273,27 @@ export default function App() {
                   <h3 className="text-gray-400 text-xs uppercase mb-2 flex gap-2"><CheckCircle size={14}/> Feedback</h3>
                   <p className="text-gray-300 leading-relaxed text-left">{sessionData.ai_feedback.feedback}</p>
                 </div>
+                {sessionData.ai_feedback.follow_up_question && (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.3 }}
+                    className="mt-4 p-6 border border-neon-purple/50 bg-neon-purple/10 rounded-xl relative"
+                  >
+                    <h3 className="text-neon-purple text-xs font-bold uppercase tracking-wider mb-2 flex items-center gap-2">
+                      <Activity size={14} /> Desafio: Próxima Pergunta
+                    </h3>
+                    <p className="text-lg font-medium text-white italic">
+                      "{sessionData.ai_feedback.follow_up_question}"
+                    </p>
+                  </motion.div>
+                )}
 
                 <button 
                   onClick={() => setStatus('idle')}
                   className="w-full py-4 mt-4 border border-white/20 rounded-lg hover:bg-white/10 transition-colors flex justify-center gap-2 items-center"
                 >
-                  <RefreshCw size={16}/> Nova Entrevista
+                  <RefreshCw size={16}/> Responder / Nova Entrevista
                 </button>
               </motion.div>
             )}

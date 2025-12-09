@@ -88,6 +88,7 @@ def lambda_handler(event, context):
             "strengths": ["Ponto forte 1"],
             "weaknesses": ["Ponto fraco 1"],
             "feedback": "Feedback construtivo focado na vaga (se houver)"
+            "follow_up_question": "Uma pergunta desafiadora baseada na resposta atual (ou na vaga) para continuar a entrevista."
         }}
         """
         
