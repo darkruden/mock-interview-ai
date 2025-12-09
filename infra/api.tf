@@ -40,15 +40,19 @@ resource "aws_apigatewayv2_integration" "session_integration" {
 # --- 4. Rotas (Endereços da API) ---
 
 resource "aws_apigatewayv2_route" "post_sessions" {
-  api_id    = aws_apigatewayv2_api.main_api.id
-  route_key = "POST /sessions"
-  target    = "integrations/${aws_apigatewayv2_integration.upload_integration.id}"
+  api_id             = aws_apigatewayv2_api.main_api.id
+  route_key          = "POST /sessions"
+  target             = "integrations/${aws_apigatewayv2_integration.upload_integration.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito_auth.id
 }
 
 resource "aws_apigatewayv2_route" "get_session_by_id" {
-  api_id    = aws_apigatewayv2_api.main_api.id
-  route_key = "GET /sessions/{session_id}"
-  target    = "integrations/${aws_apigatewayv2_integration.session_integration.id}"
+  api_id             = aws_apigatewayv2_api.main_api.id
+  route_key          = "GET /sessions/{session_id}"
+  target             = "integrations/${aws_apigatewayv2_integration.session_integration.id}"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito_auth.id
 }
 
 # --- 5. Permissões (Dar chave da API para a Lambda) ---
@@ -68,4 +72,17 @@ resource "aws_lambda_permission" "api_gw_session" {
   function_name = aws_lambda_function.get_session.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.main_api.execution_arn}/*/*"
+}
+
+# --- 6. O Porteiro (Cognito Authorizer) ---
+resource "aws_apigatewayv2_authorizer" "cognito_auth" {
+  api_id           = aws_apigatewayv2_api.main_api.id
+  authorizer_type  = "JWT"
+  identity_sources = ["$request.header.Authorization"]
+  name             = "cognito-authorizer"
+
+  jwt_configuration {
+    audience = [aws_cognito_user_pool_client.client.id]
+    issuer   = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.users.id}"
+  }
 }
