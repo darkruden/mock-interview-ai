@@ -1,20 +1,63 @@
 import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, Square, RefreshCw, Cpu, Activity, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Mic, Square, RefreshCw, Cpu, Activity, CheckCircle, AlertTriangle, LogOut } from 'lucide-react';
+
+// Componentes de Autenticação e Estilos
+import { Authenticator } from '@aws-amplify/ui-react';
+import '@aws-amplify/ui-react/styles.css';
+import { fetchAuthSession } from 'aws-amplify/auth';
 
 // --- CONFIGURAÇÃO ---
-// ⚠️ TROQUE PELA SUA URL DO TERRAFORM (sem a barra / no final)
 const API_BASE_URL = "https://731flytpdj.execute-api.us-east-1.amazonaws.com"; 
+
+// --- PERSONALIZAÇÃO DO FORMULÁRIO (A CORREÇÃO) ---
+const formFields = {
+  signIn: {
+    username: {
+      placeholder: 'Digite seu e-mail',
+      label: 'E-mail',
+      order: 1
+    },
+    password: {
+      label: 'Senha',
+      placeholder: 'Digite sua senha',
+      order: 2
+    }
+  },
+  signUp: {
+    // Forçamos o campo de e-mail a ser o principal
+    email: {
+      order: 1,
+      placeholder: 'seu@email.com',
+      label: 'E-mail',
+      isRequired: true,
+    },
+    password: {
+      order: 2,
+      label: 'Senha',
+      placeholder: 'Crie uma senha forte',
+      isRequired: true,
+    },
+    confirm_password: {
+      order: 3,
+      label: 'Confirmar Senha',
+      placeholder: 'Repita a senha',
+      isRequired: true,
+    }
+  },
+}
 
 export default function App() {
   const [status, setStatus] = useState('idle'); 
   const [sessionData, setSessionData] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
-  const [jobDescription, setJobDescription] = useState("");
+  const [jobDescription, setJobDescription] = useState(""); // Contexto da vaga
   
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
+
+  
   // --- LÓGICA DE ÁUDIO ---
   const startRecording = async () => {
     console.log("Iniciando gravação...");
@@ -44,16 +87,36 @@ export default function App() {
     }
   };
 
+    const getAuthToken = async () => {
+    try {
+      const session = await fetchAuthSession();
+      return session.tokens?.idToken?.toString();
+    } catch (err) {
+      console.error("Erro ao pegar token:", err);
+      return null;
+    }
+  };
+
   // --- INTEGRAÇÃO ---
   const handleUpload = async () => {
     console.log("Enviando áudio...");
     const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mpeg' });
     
     try {
+      const token = await getAuthToken(); // [+] Pega o token
+      if (!token) throw new Error("Usuário não autenticado"); 
+
       // 1. Handshake
       const initRes = await fetch(`${API_BASE_URL}/sessions`, {
         method: 'POST',
-        body: JSON.stringify({ candidate_name: "React User", job_description: jobDescription })
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token
+        },
+        body: JSON.stringify({ 
+          candidate_name: "React User",
+          job_description: jobDescription
+        })
       });
       const initData = await initRes.json();
       
@@ -81,7 +144,14 @@ export default function App() {
     const interval = setInterval(async () => {
       attempts++;
       try {
-        const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}`);
+        const token = await getAuthToken(); // [+] Pega o token
+        if (!token) throw new Error("Usuário não autenticado"); 
+
+        const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
+           headers: { 
+             'Authorization': token // [+] Autorização aqui também
+           }
+        });
         const data = await res.json();
         console.log("Polling status:", data.status);
 
@@ -108,107 +178,123 @@ export default function App() {
 
   // --- RENDERIZAÇÃO ---
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden bg-dark-bg text-white font-sans">
-      
-      {/* HEADER */}
-      <div className="z-10 mb-12 text-center">
-        <h1 className="text-5xl font-mono font-bold tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-purple">
-          MOCK.AI
-        </h1>
-        <p className="text-gray-400 mt-2 font-light tracking-widest text-sm">SIMULADOR NEURAL v1.0</p>
-      </div>
+    <Authenticator 
+      formFields={formFields}
+      loginMechanisms={['email']}
+      signUpAttributes={['email']} // Importante: Pede e-mail no cadastro
+    >
+      {({ signOut, user }) => (
+        <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden bg-dark-bg text-white font-sans">
+          
+          {/* HEADER */}
+          <div className="z-10 mb-12 text-center relative w-full max-w-2xl">
+            <button 
+              onClick={signOut}
+              className="absolute right-0 top-0 text-xs text-gray-500 hover:text-red-400 flex items-center gap-1 transition-colors"
+            >
+              <LogOut size={12} /> SAIR ({user?.username?.slice(0, 10)}...)
+            </button>
 
-      <AnimatePresence mode="wait">
-        
-        {/* ESTADO 1: GRAVADOR (BOTÃO) */}
-        {(status === 'idle' || status === 'recording') && (
-          <motion.div 
-            key="recorder"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="flex flex-col items-center z-10"
-          >
-          {status === 'idle' && (
-              <div className="w-full max-w-md mb-8 px-4">
-                <textarea
-                  className="w-full bg-black/40 text-white border border-neon-blue/30 rounded-lg p-4 focus:outline-none focus:border-neon-blue focus:ring-1 focus:ring-neon-blue transition-all resize-none placeholder-gray-500 text-sm font-mono"
-                  rows="3"
-                  placeholder="[OPCIONAL] Cole a Descrição da Vaga aqui..."
-                  value={jobDescription}
-                  onChange={(e) => setJobDescription(e.target.value)}
-                />
-              </div>
+            <h1 className="text-5xl font-mono font-bold tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-purple">
+              MOCK.AI
+            </h1>
+            <p className="text-gray-400 mt-2 font-light tracking-widest text-sm">SIMULADOR NEURAL v1.0</p>
+          </div>
+
+          <AnimatePresence mode="wait">
+            
+            {/* ESTADO 1: GRAVADOR (BOTÃO) */}
+            {(status === 'idle' || status === 'recording') && (
+              <motion.div 
+                key="recorder"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="flex flex-col items-center z-10"
+              >
+                {/* CAMPO DE CONTEXTO */}
+                {status === 'idle' && (
+                  <div className="w-full max-w-md mb-8 px-4">
+                    <textarea
+                      className="w-full bg-black/40 text-white border border-neon-blue/30 rounded-lg p-4 focus:outline-none focus:border-neon-blue focus:ring-1 focus:ring-neon-blue transition-all resize-none placeholder-gray-500 text-sm font-mono"
+                      rows="3"
+                      placeholder="[OPCIONAL] Cole a Descrição da Vaga aqui..."
+                      value={jobDescription}
+                      onChange={(e) => setJobDescription(e.target.value)}
+                    />
+                  </div>
+                )}
+
+                <button
+                  onClick={status === 'idle' ? startRecording : stopRecording}
+                  className={`w-32 h-32 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
+                    status === 'recording' 
+                      ? 'border-red-500 bg-red-500/20 shadow-[0_0_40px_red] animate-pulse' 
+                      : 'border-neon-blue hover:bg-neon-blue/10 hover:shadow-[0_0_40px_#00f3ff]'
+                  }`}
+                >
+                  {status === 'idle' ? <Mic size={40} className="text-neon-blue"/> : <Square size={40} className="text-red-500"/>}
+                </button>
+                <p className="mt-8 text-gray-400 font-mono">
+                  {status === 'idle' ? "CLIQUE PARA INICIAR" : "GRAVANDO... CLIQUE PARA PARAR"}
+                </p>
+              </motion.div>
             )}
 
-            <button
-              onClick={status === 'idle' ? startRecording : stopRecording}
-              className={`w-32 h-32 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
-                status === 'recording' 
-                  ? 'border-red-500 bg-red-500/20 shadow-[0_0_40px_red] animate-pulse' 
-                  : 'border-neon-blue hover:bg-neon-blue/10 hover:shadow-[0_0_40px_#00f3ff]'
-              }`}
-            >
-              {status === 'idle' ? <Mic size={40} className="text-neon-blue"/> : <Square size={40} className="text-red-500"/>}
-            </button>
-            <p className="mt-8 text-gray-400 font-mono">
-              {status === 'idle' ? "CLIQUE PARA INICIAR" : "GRAVANDO... CLIQUE PARA PARAR"}
-            </p>
-          </motion.div>
-        )}
+            {/* ESTADO 2: PROCESSANDO */}
+            {status === 'processing' && (
+              <motion.div 
+                key="processing"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="flex flex-col items-center z-10"
+              >
+                <Cpu size={64} className="text-neon-purple animate-bounce mb-4" />
+                <h2 className="text-2xl font-bold">Processando...</h2>
+              </motion.div>
+            )}
 
-        {/* ESTADO 2: PROCESSANDO (SPINNER) */}
-        {status === 'processing' && (
-          <motion.div 
-            key="processing"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="flex flex-col items-center z-10"
-          >
-            <Cpu size={64} className="text-neon-purple animate-bounce mb-4" />
-            <h2 className="text-2xl font-bold">Processando...</h2>
-          </motion.div>
-        )}
+            {/* ESTADO 3: RESULTADOS */}
+            {status === 'completed' && sessionData && (
+              <motion.div 
+                key="results"
+                initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }}
+                className="w-full max-w-2xl z-10 space-y-4"
+              >
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-6 border border-white/10 rounded-xl bg-card-bg text-center">
+                    <div className="text-gray-400 text-xs uppercase">Técnica</div>
+                    <div className="text-4xl font-bold text-neon-blue mt-2">{sessionData.ai_feedback.technical_score}</div>
+                  </div>
+                  <div className="p-6 border border-white/10 rounded-xl bg-card-bg text-center">
+                    <div className="text-gray-400 text-xs uppercase">Clareza</div>
+                    <div className="text-4xl font-bold text-neon-purple mt-2">{sessionData.ai_feedback.clarity_score}</div>
+                  </div>
+                </div>
 
-        {/* ESTADO 3: RESULTADOS */}
-        {status === 'completed' && sessionData && (
-          <motion.div 
-            key="results"
-            initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }}
-            className="w-full max-w-2xl z-10 space-y-4"
-          >
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-6 border border-white/10 rounded-xl bg-card-bg text-center">
-                <div className="text-gray-400 text-xs uppercase">Técnica</div>
-                <div className="text-4xl font-bold text-neon-blue mt-2">{sessionData.ai_feedback.technical_score}</div>
-              </div>
-              <div className="p-6 border border-white/10 rounded-xl bg-card-bg text-center">
-                <div className="text-gray-400 text-xs uppercase">Clareza</div>
-                <div className="text-4xl font-bold text-neon-purple mt-2">{sessionData.ai_feedback.clarity_score}</div>
-              </div>
-            </div>
+                <div className="p-6 border-l-4 border-neon-blue bg-card-bg rounded-r-xl">
+                  <h3 className="text-gray-400 text-xs uppercase mb-2 flex gap-2"><CheckCircle size={14}/> Feedback</h3>
+                  <p className="text-gray-300 leading-relaxed text-left">{sessionData.ai_feedback.feedback}</p>
+                </div>
 
-            <div className="p-6 border-l-4 border-neon-blue bg-card-bg rounded-r-xl">
-              <h3 className="text-gray-400 text-xs uppercase mb-2 flex gap-2"><CheckCircle size={14}/> Feedback</h3>
-              <p className="text-gray-300 leading-relaxed">{sessionData.ai_feedback.feedback}</p>
-            </div>
+                <button 
+                  onClick={() => setStatus('idle')}
+                  className="w-full py-4 mt-4 border border-white/20 rounded-lg hover:bg-white/10 transition-colors flex justify-center gap-2 items-center"
+                >
+                  <RefreshCw size={16}/> Nova Entrevista
+                </button>
+              </motion.div>
+            )}
 
-            <button 
-              onClick={() => setStatus('idle')}
-              className="w-full py-4 mt-4 border border-white/20 rounded-lg hover:bg-white/10 transition-colors flex justify-center gap-2 items-center"
-            >
-              <RefreshCw size={16}/> Nova Entrevista
-            </button>
-          </motion.div>
-        )}
+            {/* ESTADO 4: ERRO */}
+            {status === 'error' && (
+               <div className="text-red-500 text-center z-10">
+                 <AlertTriangle size={48} className="mx-auto mb-2"/>
+                 <p>{errorMsg}</p>
+                 <button onClick={() => setStatus('idle')} className="mt-4 underline">Tentar de novo</button>
+               </div>
+            )}
 
-        {/* ESTADO 4: ERRO */}
-        {status === 'error' && (
-           <div className="text-red-500 text-center z-10">
-             <AlertTriangle size={48} className="mx-auto mb-2"/>
-             <p>{errorMsg}</p>
-             <button onClick={() => setStatus('idle')} className="mt-4 underline">Tentar de novo</button>
-           </div>
-        )}
-
-      </AnimatePresence>
-    </div>
+          </AnimatePresence>
+        </div>
+      )}
+    </Authenticator>
   );
 }
