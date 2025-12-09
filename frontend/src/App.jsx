@@ -184,17 +184,14 @@ export default function App() {
       signUpAttributes={['email']} // Importante: Pede e-mail no cadastro
     >
       {({ signOut, user }) => (
-        <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden bg-dark-bg text-white font-sans">
-
+        <div className="min-h-screen flex flex-col items-center justify-center p-4 relative overflow-hidden bg-dark-bg text-white font-sans">          <button
+          onClick={signOut}
+          className="absolute top-6 right-6 z-50 text-xs text-gray-500 hover:text-red-400 flex items-center gap-2 transition-colors font-mono tracking-wider border border-white/5 px-3 py-2 rounded-full hover:border-red-500/30 hover:bg-red-500/10"
+        >
+          <LogOut size={14} /> SAIR <span className="opacity-50">|</span> {user?.username?.slice(0, 15)}...
+        </button>
           {/* HEADER */}
           <div className="z-10 mb-12 text-center relative w-full max-w-2xl">
-            <button
-              onClick={signOut}
-              className="absolute right-0 top-0 text-xs text-gray-500 hover:text-red-400 flex items-center gap-1 transition-colors"
-            >
-              <LogOut size={12} /> SAIR ({user?.username?.slice(0, 10)}...)
-            </button>
-
             <h1 className="text-5xl font-mono font-bold tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-neon-blue to-neon-purple">
               MOCK.AI
             </h1>
