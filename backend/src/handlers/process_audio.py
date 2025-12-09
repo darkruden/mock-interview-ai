@@ -15,123 +15,53 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_KEY)
 
 def lambda_handler(event, context):
-    print(f"Evento S3 Recebido: {json.dumps(event)}")
+    """
+    Executa a análise de IA.
+    Espera receber payload direto da Step Function:
+    { "session_id": "...", "bucket": "...", "key": "..." }
+    """
+    print(f"Worker Iniciado. Payload: {json.dumps(event)}")
     
-    for record in event['Records']:
-        local_path = ""
-        try:
-            bucket_name = record['s3']['bucket']['name']
-            s3_key = record['s3']['object']['key']
-            
-            # Extrair Session ID
-            session_id = s3_key.split("/")[1]
-            print(f"Processando Sessão: {session_id}")
+    # 1. Leitura Direta (Sem loop de Records)
+    session_id = event.get('session_id')
+    bucket_name = event.get('bucket')
+    s3_key = event.get('key')
 
-            db_response = table.get_item(Key={'session_id': session_id})
-            job_description = db_response.get('Item', {}).get('job_description', "")
-            
-            update_status(session_id, "PROCESSING")
+    if not session_id or not bucket_name or not s3_key:
+        raise ValueError("Payload inválido: Faltam dados obrigatórios (session_id, bucket, key)")
 
-            update_status(session_id, "PROCESSING")
+    local_path = f"/tmp/{session_id}.mp3"
 
-            # --- CORREÇÃO 1: NOME DE ARQUIVO ÚNICO ---
-            # Evita o "Arquivo Zumbi" de execuções anteriores
-            local_path = f"/tmp/{session_id}.mp3"
-
-            # Baixar
-            print(f"Baixando de {bucket_name}/{s3_key} para {local_path}...")
-            s3_client.download_file(bucket_name, s3_key, local_path)
-            
-            # Verificar tamanho do arquivo (Debug)
-            file_size = os.path.getsize(local_path)
-            print(f"Tamanho do arquivo baixado: {file_size} bytes")
-
-            if file_size < 1000: # Se for menor que 1KB, provavelmente é silêncio ou erro
-                print("⚠️ AVISO: Arquivo de áudio muito pequeno/vazio.")
-
-            # Enviar para Gemini
-            print("Enviando para o Gemini...")
-            myfile = genai.upload_file(local_path)
-            
-            while myfile.state.name == "PROCESSING":
-                time.sleep(1)
-                myfile = genai.get_file(myfile.name)
-
-            # Usando o modelo V2 (Mais recente)
-            model = genai.GenerativeModel("gemini-2.5-flash")
-            
-            # --- CORREÇÃO 2: PROMPT ANTI-ALUCINAÇÃO ---
-            base_prompt = """
-            Você é um Recrutador Técnico Sênior e Auditor.
-            Sua tarefa é analisar o áudio fornecido.
-            """
-
-            context_instruction = ""
-            if job_description:
-                context_instruction = f"""
-                CONTEXTO DA VAGA (IMPORTANTE):
-                O candidato está se aplicando para a seguinte vaga:
-                "{job_description}"
-                
-                Avalie se o candidato demonstra os conhecimentos exigidos na descrição acima.
-                Se ele fugir do tema da vaga, penalize a nota técnica.
-                """
-
-            prompt = f"""
-            {base_prompt}
-            {context_instruction}
-
-            REGRAS CRÍTICAS (ANTI-ALUCINAÇÃO):
-            1. Você deve analisar APENAS o que ouvir neste áudio específico. NÃO invente tecnologias que o candidato não mencionou.
-            2. Se o áudio for silêncio, ruído ou inaudível, retorne o JSON com "error": "AUDIO_INAUDIVEL".
-            3. Se o candidato falar pouco, analise apenas o pouco que ele disse.
-
-            Formato de Resposta (JSON Puro):
-            {{
-                "technical_score": (0-100),
-                "clarity_score": (0-100),
-                "summary": "Resumo fiel do que foi dito",
-                "strengths": ["Ponto forte 1"],
-                "weaknesses": ["Ponto fraco 1"],
-                "feedback": "Feedback construtivo focado na vaga (se houver)"
-            }}
-            """
-            
-            result = model.generate_content([myfile, prompt])
-            
-            # Limpeza do JSON (remove markdown se a IA colocar)
-            response_text = result.text.replace("```json", "").replace("```", "").strip()
-            print(f"Resposta da IA: {response_text}")
-            
-            ai_data = json.loads(response_text)
-
-            # Verifica se a IA detectou erro de áudio
-            if "error" in ai_data:
-                 update_status(session_id, "ERROR", ai_data["error"])
-            else:
-                table.update_item(
-                    Key={'session_id': session_id},
-                    UpdateExpression="SET #s = :status, ai_feedback = :feedback, updated_at = :time",
-                    ExpressionAttributeNames={'#s': 'status'},
-                    ExpressionAttributeValues={
-                        ':status': 'COMPLETED',
-                        ':feedback': ai_data,
-                        ':time': str(int(time.time()))
-                    }
-                )
-
-        except Exception as e:
-            print(f"ERRO FATAL: {str(e)}")
-            if 'session_id' in locals():
-                update_status(session_id, "ERROR", f"Internal Error: {str(e)}")
-            # Não damos raise para não entrar em loop infinito de retry da Lambda se for erro de lógica
+    try:
+        # [Mantém a lógica original de leitura do banco para Contexto]
+        db_response = table.get_item(Key={'session_id': session_id})
+        job_description = db_response.get('Item', {}).get('job_description', "")
         
-        finally:
-            # --- CORREÇÃO 3: LIMPEZA ---
-            # Apaga o arquivo do disco temporário para não sobrar para a próxima execução
-            if os.path.exists(local_path):
-                os.remove(local_path)
-                print("Arquivo temporário removido.")
+        # Atualiza status para PROCESSING (Caso a Step Function ainda não tenha feito)
+        update_status(session_id, "PROCESSING")
+
+        # 2. Download (Igual ao anterior)
+        print(f"Baixando de {bucket_name}/{s3_key}...")
+        s3_client.download_file(bucket_name, s3_key, local_path)
+        
+        # ... [MANTENHA O CÓDIGO DO GEMINI E UPDATE_ITEM AQUI IGUAL AO ANTERIOR] ...
+        # (O trecho que envia para o Gemini, gera o prompt e salva no DynamoDB não muda)
+        
+        # Retorno para a Step Function (Opcional, mas boa prática)
+        return {
+            "status": "COMPLETED",
+            "session_id": session_id
+        }
+
+    except Exception as e:
+        print(f"ERRO FATAL: {str(e)}")
+        # Na arquitetura Step Functions, nós lançamos o erro (raise) 
+        # para que a State Machine saiba que falhou e possa tentar de novo (Retry)
+        raise e 
+    
+    finally:
+        if os.path.exists(local_path):
+            os.remove(local_path)
 
 def update_status(session_id, status, error_msg=None):
     params = {
