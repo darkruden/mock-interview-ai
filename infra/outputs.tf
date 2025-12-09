@@ -40,3 +40,14 @@ output "cloudfront_distribution_id" {
   description = "ID da distribuição do CloudFront para invalidação de cache"
   value       = aws_cloudfront_distribution.s3_distribution.id
 }
+
+# --- Saídas de Segurança ---
+output "cognito_user_pool_id" {
+  description = "ID do Banco de Usuários"
+  value       = aws_cognito_user_pool.users.id
+}
+
+output "cognito_client_id" {
+  description = "ID do Cliente React"
+  value       = aws_cognito_user_pool_client.client.id
+}
