@@ -3,7 +3,7 @@ resource "aws_cognito_user_pool" "users" {
   name = "${var.project_name}-users-${var.environment}"
 
   # Permite login usando o e-mail
-  alias_attributes         = ["email"]
+  username_attributes      = ["email"]
   auto_verified_attributes = ["email"]
 
   password_policy {
