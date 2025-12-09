@@ -20,6 +20,8 @@ resource "aws_iam_role" "lambda_role" {
   })
 }
 
+
+
 # Permissões Básicas (Logs + Acesso ao S3 e DynamoDB)
 resource "aws_iam_role_policy" "lambda_policy" {
   name = "${var.project_name}-lambda-policy"
@@ -45,6 +47,12 @@ resource "aws_iam_role_policy" "lambda_policy" {
         Effect   = "Allow"
         Action   = ["s3:PutObject", "s3:GetObject"]
         Resource = "${aws_s3_bucket.media_bucket.arn}/*"
+      },
+      # [NOVO] Permissão para iniciar a Step Function
+      {
+        Effect   = "Allow"
+        Action   = "states:StartExecution"
+        Resource = aws_sfn_state_machine.analysis_workflow.arn
       }
     ]
   })
@@ -97,7 +105,7 @@ resource "aws_lambda_function" "process_audio" {
 resource "aws_lambda_permission" "allow_s3" {
   statement_id  = "AllowS3Invoke"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.process_audio.function_name
+  function_name = aws_lambda_function.start_execution.function_name # <--- MUDOU AQUI
   principal     = "s3.amazonaws.com"
   source_arn    = aws_s3_bucket.media_bucket.arn
 }
@@ -107,9 +115,9 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
   bucket = aws_s3_bucket.media_bucket.id
 
   lambda_function {
-    lambda_function_arn = aws_lambda_function.process_audio.arn
-    events              = ["s3:ObjectCreated:*"] # Qualquer criação (Put, Post, Copy)
-    filter_suffix       = ".mp3"                 # Opcional: só aciona se for mp3
+    lambda_function_arn = aws_lambda_function.start_execution.arn # <--- MUDOU AQUI
+    events              = ["s3:ObjectCreated:*"]
+    filter_suffix       = ".mp3"
   }
 
   depends_on = [aws_lambda_permission.allow_s3]
@@ -130,6 +138,25 @@ resource "aws_lambda_function" "get_session" {
   environment {
     variables = {
       TABLE_NAME = aws_dynamodb_table.sessions_table.name
+    }
+  }
+}
+
+# [NOVO] Lambda Gatilho (Recebe S3 -> Inicia Workflow)
+resource "aws_lambda_function" "start_execution" {
+  function_name = "${var.project_name}-start-execution-${var.environment}"
+  role          = aws_iam_role.lambda_role.arn
+
+  filename         = data.archive_file.lambda_zip.output_path
+  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+
+  runtime = "python3.11"
+  handler = "handlers.start_execution.lambda_handler"
+  timeout = 10
+
+  environment {
+    variables = {
+      STATE_MACHINE_ARN = aws_sfn_state_machine.analysis_workflow.arn
     }
   }
 }
