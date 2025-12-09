@@ -10,3 +10,11 @@ body {
   background-image: radial-gradient(circle at 50% 50%, #1a1a1a 0%, #050505 70%);
   min-height: 100vh;
 }
+
+/* Centraliza o Authenticator na tela */
+[data-amplify-authenticator] {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
