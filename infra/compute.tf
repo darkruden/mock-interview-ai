@@ -160,3 +160,22 @@ resource "aws_lambda_function" "start_execution" {
     }
   }
 }
+
+# Lambda para gerar Tokens Efêmeros do Gemini
+resource "aws_lambda_function" "get_gemini_token" {
+  function_name = "${var.project_name}-get-token-${var.environment}"
+  role          = aws_iam_role.lambda_role.arn
+
+  filename         = data.archive_file.lambda_zip.output_path
+  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+
+  runtime = "python3.11"
+  handler = "handlers.get_gemini_token.lambda_handler"
+  timeout = 10
+
+  environment {
+    variables = {
+      GEMINI_API_KEY = var.gemini_api_key
+    }
+  }
+}
