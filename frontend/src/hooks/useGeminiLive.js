@@ -2,18 +2,17 @@ import { useState, useRef, useEffect } from 'react';
 import { fetchAuthSession } from 'aws-amplify/auth';
 
 // Configuração do WebSocket do Gemini
-const MODEL = "models/gemini-2.0-flash-exp"; // Usando o modelo experimental mais rápido
+const MODEL = "models/gemini-2.5-flash";
 const BASE_URL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent";
 
 export function useGeminiLive(apiBaseUrl) {
-    const [status, setStatus] = useState('disconnected'); // disconnected, connecting, connected, error
-    const [isSpeaking, setIsSpeaking] = useState(false); // Se a IA está falando
+    const [status, setStatus] = useState('disconnected');
+    const [isSpeaking, setIsSpeaking] = useState(false);
     const websocketRef = useRef(null);
     const audioContextRef = useRef(null);
     const mediaStreamRef = useRef(null);
     const processorRef = useRef(null);
 
-    // Pega o token efêmero da nossa API
     const getEphemeralToken = async () => {
         const session = await fetchAuthSession();
         const idToken = session.tokens?.idToken?.toString();
@@ -30,19 +29,22 @@ export function useGeminiLive(apiBaseUrl) {
             setStatus('connecting');
             const token = await getEphemeralToken();
 
-            // Monta URL com o token direto (seguro pois o token expira em 10min)
             const wsUrl = `${BASE_URL}?key=${token}`;
             const ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
                 console.log("WebSocket Conectado!");
                 setStatus('connected');
-                // Envia configuração inicial (Setup)
+
+                // Configuração inicial (Setup)
                 ws.send(JSON.stringify({
                     setup: {
                         model: MODEL,
                         generationConfig: {
-                            responseModalities: ["AUDIO"]
+                            responseModalities: ["AUDIO"],
+                            speechConfig: {
+                                voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } }
+                            }
                         }
                     }
                 }));
@@ -50,21 +52,41 @@ export function useGeminiLive(apiBaseUrl) {
             };
 
             ws.onmessage = async (event) => {
-                const data = await event.data.text(); // O Gemini manda Blob/Text misturado
                 let response;
                 try {
-                    response = JSON.parse(data);
-                } catch (e) { return; }
+                    // [CORREÇÃO] Verifica se é Blob (Binário) ou Texto Puro
+                    let textData;
+                    if (event.data instanceof Blob) {
+                        textData = await event.data.text();
+                    } else {
+                        textData = event.data;
+                    }
+
+                    response = JSON.parse(textData);
+                } catch (e) {
+                    console.error("Erro ao parsear mensagem:", e);
+                    return;
+                }
 
                 // Se receber áudio da IA, toca
                 if (response.serverContent?.modelTurn?.parts?.[0]?.inlineData) {
                     const audioData = response.serverContent.modelTurn.parts[0].inlineData.data;
                     playAudioChunk(audioData);
                 }
+
+                // Log de fim de turno (debug)
+                if (response.serverContent?.turnComplete) {
+                    console.log("IA terminou de falar.");
+                }
             };
 
-            ws.onclose = () => {
+            // [CORREÇÃO] Adicionado 'event' aqui para não dar erro no log
+            ws.onclose = (event) => {
                 console.log(`WebSocket Fechado. Código: ${event.code}, Motivo: ${event.reason}`);
+
+                // Códigos de erro comuns: 
+                // 4000-4999: Erro de Protocolo (Modelo errado, JSON inválido)
+                // 1006: Erro de Rede (CORS, Queda de net)
 
                 stopAudio();
                 setStatus('disconnected');
@@ -89,7 +111,7 @@ export function useGeminiLive(apiBaseUrl) {
         setStatus('disconnected');
     };
 
-    // --- Lógica de Áudio (Microfone -> PCM 16kHz -> WebSocket) ---
+    // --- Lógica de Áudio (Mantida igual) ---
     const startMicrophone = async (ws) => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1 } });
@@ -97,20 +119,16 @@ export function useGeminiLive(apiBaseUrl) {
             audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
 
             const source = audioContextRef.current.createMediaStreamSource(stream);
-
-            // Processador simples para pegar o buffer cru (Worklet seria ideal, mas ScriptProcessor é mais fácil de implementar num arquivo só)
             const processor = audioContextRef.current.createScriptProcessor(4096, 1, 1);
+
             processor.onaudioprocess = (e) => {
                 if (ws.readyState !== WebSocket.OPEN) return;
 
                 const inputData = e.inputBuffer.getChannelData(0);
-                // Converte Float32 para Int16 (PCM)
                 const pcmData = new Int16Array(inputData.length);
                 for (let i = 0; i < inputData.length; i++) {
                     pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
                 }
-
-                // Converte para Base64 e envia
                 const base64Audio = btoa(String.fromCharCode(...new Uint8Array(pcmData.buffer)));
 
                 ws.send(JSON.stringify({
@@ -124,7 +142,7 @@ export function useGeminiLive(apiBaseUrl) {
             };
 
             source.connect(processor);
-            processor.connect(audioContextRef.current.destination); // Necessário para o ScriptProcessor rodar
+            processor.connect(audioContextRef.current.destination);
             processorRef.current = processor;
 
         } catch (e) {
@@ -138,7 +156,6 @@ export function useGeminiLive(apiBaseUrl) {
         if (audioContextRef.current) audioContextRef.current.close();
     };
 
-    // --- Lógica de Playback (PCM Base64 -> Falante) ---
     const playAudioChunk = async (base64Data) => {
         try {
             setIsSpeaking(true);
@@ -153,8 +170,7 @@ export function useGeminiLive(apiBaseUrl) {
                 float32Data[i] = int16Data[i] / 0x7FFF;
             }
 
-            // Toca o buffer
-            if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 }); // Gemini 2 costuma devolver 24k
+            if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
 
             const buffer = audioContextRef.current.createBuffer(1, float32Data.length, 24000);
             buffer.getChannelData(0).set(float32Data);

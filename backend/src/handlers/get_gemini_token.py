@@ -35,8 +35,8 @@ def lambda_handler(event, context):
         
         # [CORREÇÃO CRÍTICA] Remove o prefixo "authTokens/" se existir
         raw_token = auth_token.name
-        if raw_token.startswith("authTokens/"):
-            raw_token = raw_token.replace("authTokens/", "")
+        if "/" in raw_token:
+            raw_token = raw_token.split("/")[-1]
 
         print(f"Token gerado (truncado): {raw_token[:10]}...")
 
