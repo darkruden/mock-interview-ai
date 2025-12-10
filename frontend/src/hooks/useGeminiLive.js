@@ -3,7 +3,7 @@ import { fetchAuthSession } from 'aws-amplify/auth';
 
 // Configuração do WebSocket do Gemini
 const MODEL = "models/gemini-2.5-flash";
-const BASE_URL = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent";
+const BASE_URL = "wss://generativelanguage.googleapis.com/v1alpha/models/gemini-2.5-flash:BidiGenerateContent";
 
 export function useGeminiLive(apiBaseUrl) {
     const [status, setStatus] = useState('disconnected');
@@ -29,7 +29,11 @@ export function useGeminiLive(apiBaseUrl) {
             setStatus('connecting');
             const token = await getEphemeralToken();
 
-            const wsUrl = `${BASE_URL}?key=${token}`;
+            let rawToken = await getEphemeralToken();
+            console.log("🔍 TOKEN RECEBIDO DA AWS:", rawToken);
+            const cleanToken = rawToken.includes('/') ? rawToken.split('/').pop() : rawToken;
+            console.log("✨ TOKEN LIMPO PARA O GOOGLE:", cleanToken);
+            const wsUrl = `${BASE_URL}?access_token=${cleanToken}`;
             const ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
