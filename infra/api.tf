@@ -5,9 +5,9 @@ resource "aws_apigatewayv2_api" "main_api" {
 
   # Configuração de CORS (Vital para o Frontend funcionar)
   cors_configuration {
-    allow_origins = ["*"] # Em produção, coloque o domínio do seu site
-    allow_methods = ["POST", "GET", "OPTIONS"]
-    allow_headers = ["Content-Type", "Authorization"]
+    allow_headers = ["Content-Type", "Authorization", "X-Amz-Date", "X-Api-Key", "X-Amz-Security-Token"]
+    allow_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allow_origins = ["*"] # Em produção real, você trocaria "*" pela URL do CloudFront
     max_age       = 300
   }
 }
@@ -85,4 +85,32 @@ resource "aws_apigatewayv2_authorizer" "cognito_auth" {
     audience = [aws_cognito_user_pool_client.client.id]
     issuer   = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.users.id}"
   }
+}
+
+# Integração da Lambda de Token
+resource "aws_apigatewayv2_integration" "token_integration" {
+  api_id                 = aws_apigatewayv2_api.main_api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.get_gemini_token.invoke_arn
+  payload_format_version = "2.0"
+}
+
+# Rota GET /auth/gemini-token (Protegida pelo Cognito)
+resource "aws_apigatewayv2_route" "get_token" {
+  api_id    = aws_apigatewayv2_api.main_api.id
+  route_key = "GET /auth/gemini-token"
+  target    = "integrations/${aws_apigatewayv2_integration.token_integration.id}"
+
+  # Segurança Máxima: Só usuários logados pegam token da IA
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito_auth.id
+}
+
+# Permissão para o API Gateway invocar a Lambda
+resource "aws_lambda_permission" "api_gw_token" {
+  statement_id  = "AllowExecutionFromAPIGatewayToken"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.get_gemini_token.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.main_api.execution_arn}/*/*/auth/gemini-token"
 }
