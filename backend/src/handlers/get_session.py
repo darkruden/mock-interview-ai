@@ -1,33 +1,59 @@
 import json
 import os
 import boto3
+from botocore.config import Config
 from decimal import Decimal
 
-dynamodb = boto3.resource("dynamodb")
-TABLE_NAME = os.environ.get("TABLE_NAME")
-table = dynamodb.Table(TABLE_NAME)
+# Singleton para conexão
+_DYNAMODB_RES = None
 
+# Classe auxiliar para converter Decimal do DynamoDB para JSON
 class DecimalEncoder(json.JSONEncoder):
-    """Corrige o erro de Decimal do DynamoDB na hora de converter pra JSON"""
-    def default(self, obj):
-        if isinstance(obj, Decimal):
-            return float(obj)
-        return super(DecimalEncoder, self).default(obj)
+    def default(self, o):
+        if isinstance(o, Decimal):
+            if o % 1 > 0:
+                return float(o)
+            else:
+                return int(o)
+        return super(DecimalEncoder, self).default(o)
 
-def lambda_handler(event, context):
-    print(f"Evento recebido: {json.dumps(event)}")
+def get_db():
+    global _DYNAMODB_RES
+    if _DYNAMODB_RES is None:
+        config = Config(retries={'max_attempts': 3, 'mode': 'standard'})
+        _DYNAMODB_RES = boto3.resource("dynamodb", config=config)
+    return _DYNAMODB_RES
+
+def lambda_handler(event, context, dynamodb_resource=None):
+    """
+    Busca o status e feedback da sessão.
+    Rota: GET /session/{session_id}
+    """
+    # Injeção de dependência para testes
+    db = dynamodb_resource if dynamodb_resource else get_db()
     
-    try:
-        # Pega o ID da URL (ex: /sessions/123-abc)
-        session_id = event.get('pathParameters', {}).get('session_id')
-        
-        if not session_id:
-            return {"statusCode": 400, "body": json.dumps({"error": "Missing session_id"})}
+    TABLE_NAME = os.environ.get("TABLE_NAME")
+    table = db.Table(TABLE_NAME)
 
+    # Pegar ID da URL (pathParameters)
+    session_id = None
+    if event.get("pathParameters"):
+        session_id = event["pathParameters"].get("session_id")
+    
+    if not session_id:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "Missing session_id"})
+        }
+
+    try:
         response = table.get_item(Key={'session_id': session_id})
         
         if 'Item' not in response:
-            return {"statusCode": 404, "body": json.dumps({"error": "Session not found"})}
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Session not found"})
+            }
 
         item = response['Item']
         
@@ -35,11 +61,15 @@ def lambda_handler(event, context):
             "statusCode": 200,
             "headers": {
                 "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*" # CORS
+                "Access-Control-Allow-Origin": "*"
             },
+            # Usa o Encoder customizado para lidar com números do DynamoDB
             "body": json.dumps(item, cls=DecimalEncoder)
         }
 
     except Exception as e:
-        print(f"Erro: {str(e)}")
-        return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
+        print(f"ERROR: {str(e)}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": "Internal Server Error"})
+        }

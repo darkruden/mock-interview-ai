@@ -1,21 +1,74 @@
-# Python
+# --- GERAL / OS ---
+.DS_Store
+Thumbs.db
+*.log
+
+# --- IDEs / EDITORES ---
+.vscode/
+.idea/
+*.swp
+
+# --- PYTHON (Backend) ---
 __pycache__/
 *.py[cod]
 *$py.class
-.pytest_cache/
+# Ambientes Virtuais (cobre vários nomes comuns)
 venv/
-.env
-# Terraform
+.venv/
+env/
+# Distribuição / Builds
+build/
+dist/
+*.egg-info/
+# Testes e Cobertura (Gerados pelo Pytest)
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# --- NODE.JS / REACT (Frontend) ---
+# OBRIGATÓRIO: Dependências gigantescas nunca devem ir para o Git
+node_modules/
+# Pasta de build de produção do Vite
+/frontend/dist/
+# Logs de erro do npm/yarn
+npm-debug.log*
+yarn-error.log*
+yarn-debug.log*
+
+# --- TERRAFORM (Infra) ---
+# Diretório local de plugins/módulos
 .terraform/
-*.tfstate
-*.zip
-*.tfstate.backup
+# Arquivo de bloqueio de dependências (Opcional: alguns times comitam isso, outros não. 
+# Se você trabalha sozinho em um SO só, pode ignorar. Se for time, é bom comitar.)
 .terraform.lock.hcl
+# Estado da infraestrutura (CONTÉM SEGREDOS - JAMAIS COMITE)
+*.tfstate
+*.tfstate.backup
+# Variáveis com segredos (API Keys, etc)
 *.tfvars
-*.tfvars.example
-# IDE
-.vscode/
-.idea/
-# pessoal
+*.tfvars.json
+# Planos de execução salvos
+*.tfplan
+
+# --- AWS / SERVERLESS ---
+# Artefatos de build locais
+.aws-sam/
+package.yaml
+# Zips gerados para Lambda
+*.zip
+
+# --- VARIÁVEIS DE AMBIENTE (Segurança) ---
+# Ignora qualquer arquivo .env (backend/.env, frontend/.env, raiz/.env)
+.env
+.env.*
+!.env.example
+
+# --- ARQUIVOS PESSOAIS / DOCUMENTAÇÃO PRIVADA ---
+# Se você quiser manter seus docs de planejamento apenas localmente:
 docs/
+# Pasta de build que criamos no script PowerShell
 build_package/
+# Arquivos de áudio de teste locais
+*.mp3
+*.wav
