@@ -100,3 +100,57 @@ def test_process_audio_missing_file(s3_client, dynamodb_resource, mock_genai_cli
         lambda_handler(event, {}, resources=resources)
     
     assert "404" in str(excinfo.value) or "HeadObject" in str(excinfo.value)
+    
+def test_process_audio_invalid_payload(s3_client, dynamodb_resource, mock_genai_client):
+    """
+    Cenário: Payload vazio ou incompleto vindo da Step Function.
+    Verifica: Se lança ValueError antes de tentar processar.
+    """
+    # Arrange
+    resources = (s3_client, dynamodb_resource, mock_genai_client)
+    event = {} # Evento vazio
+
+    # Act & Assert
+    with pytest.raises(ValueError) as excinfo:
+        lambda_handler(event, {}, resources=resources)
+    
+    assert "Payload inválido" in str(excinfo.value)
+
+def test_process_audio_gemini_file_processing_failed(s3_client, dynamodb_resource, mock_genai_client):
+    """
+    Cenário: O upload para o Gemini funciona, mas o processamento interno deles falha.
+    Verifica: Se o sistema detecta o estado FAILED e lança erro.
+    """
+    # Arrange
+    s3_client.put_object(Bucket=BUCKET_NAME, Key=S3_KEY, Body=b"corrupted_audio")
+    
+    table = dynamodb_resource.Table(TABLE_NAME)
+    table.put_item(Item={
+        "session_id": SESSION_ID, 
+        "status": "PROCESSING",
+        "job_description": ""
+    })
+
+    # Simula o Gemini retornando estado FAILED
+    # O código faz um loop (upload -> processing -> get_file). 
+    # Precisamos configurar o mock para retornar PROCESSING primeiro, depois FAILED.
+    mock_file_processing = MagicMock()
+    mock_file_processing.state.name = "PROCESSING"
+    
+    mock_file_failed = MagicMock()
+    mock_file_failed.state.name = "FAILED"
+    
+    # side_effect permite retornar valores diferentes a cada chamada
+    mock_genai_client.files.get.side_effect = [mock_file_processing, mock_file_failed]
+    
+    # O upload inicial retorna o objeto em processamento
+    mock_genai_client.files.upload.return_value = mock_file_processing
+
+    resources = (s3_client, dynamodb_resource, mock_genai_client)
+    event = {"session_id": SESSION_ID, "bucket": BUCKET_NAME, "key": S3_KEY}
+
+    # Act & Assert
+    with pytest.raises(ValueError) as excinfo:
+        lambda_handler(event, {}, resources=resources)
+        
+    assert "falhou no Gemini" in str(excinfo.value)

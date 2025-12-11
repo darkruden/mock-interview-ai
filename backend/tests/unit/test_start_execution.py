@@ -47,3 +47,29 @@ def test_ignore_invalid_key_structure():
     lambda_handler(event, MagicMock(), sfn_client=mock_sfn)
     
     mock_sfn.start_execution.assert_not_called()
+
+
+def test_trigger_step_function_failure():
+    """Cenário: Step Function fora do ar ou erro de permissão."""
+    # Arrange
+    os.environ["STATE_MACHINE_ARN"] = "arn:aws:states:..."
+    mock_sfn = MagicMock()
+    # Simula erro ao tentar iniciar execução
+    mock_sfn.start_execution.side_effect = Exception("Access Denied")
+    
+    event = {
+        "Records": [{
+            "s3": {
+                "bucket": {"name": "b"},
+                "object": {"key": "uploads/123/a.mp3"}
+            }
+        }]
+    }
+    
+    # Act
+    response = lambda_handler(event, MagicMock(), sfn_client=mock_sfn)
+    
+    # Assert
+    # Conforme seu código, ele captura o erro e retorna 500
+    assert response["statusCode"] == 500
+    assert "Access Denied" in response["error"]
