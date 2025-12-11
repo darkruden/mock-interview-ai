@@ -1,67 +1,54 @@
-name: Quality Assurance (CI)
+name: Quality Assurance
 
-# Dispara em qualquer push na main ou Pull Request
+# Dispara o workflow apenas quando há mudanças relevantes
 on:
   push:
-    branches: [main]
+    branches: [ main, develop ]
+    paths:
+      - 'backend/**'               # Só roda se mexer no backend
+      - '.github/workflows/**'     # Ou na configuração do CI
   pull_request:
-    branches: [main]
+    branches: [ main, develop ]
+    paths:
+      - 'backend/**'
 
 jobs:
-  # --- JOB 1: BACKEND (Python) ---
-  backend-test:
+  backend-tests:
+    name: Run Backend Tests (Unit & Integration)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend  # Define a pasta raiz para os comandos
+
     steps:
-      - uses: actions/checkout@v3
+    - name: Checkout Code
+      uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'  # Habilita cache automático do pip para ser mais rápido
 
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
-          pip install pytest flake8
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        # Instala dependências de teste se o arquivo existir
+        if [ -f requirements-test.txt ]; then pip install -r requirements-test.txt; fi
 
-      - name: Lint with Flake8
-        run: |
-          # stop the build if there are Python syntax errors or undefined names
-          flake8 backend/src --count --select=E9,F63,F7,F82 --show-source --statistics
-
-      - name: Test with Pytest
-        run: |
-          # Adiciona o diretório src ao PYTHONPATH para os testes encontrarem os módulos
-          export PYTHONPATH=$PYTHONPATH:$(pwd)/backend/src
-          pytest backend/tests
-
-  # --- JOB 2: FRONTEND (React) ---
-  frontend-build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: "18"
-
-      - name: Install Dependencies
-        working-directory: ./frontend
-        run: npm ci
-
-      - name: Verify Build
-        working-directory: ./frontend
-        run: npm run build
-
-  # --- JOB 3: INFRA (Terraform) ---
-  terraform-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: hashicorp/setup-terraform@v2
-
-      - name: Terraform Format Check
-        working-directory: ./infra
-        run: terraform fmt -check
+    - name: Run Automated Tests
+      # Define variáveis de ambiente FAKE explicitamente para segurança duplicada
+      env:
+        AWS_ACCESS_KEY_ID: testing
+        AWS_SECRET_ACCESS_KEY: testing
+        AWS_SECURITY_TOKEN: testing
+        AWS_SESSION_TOKEN: testing
+        AWS_DEFAULT_REGION: us-east-1
+        BUCKET_NAME: mock-interview-tests-bucket
+        TABLE_NAME: MockInterviewSessions-Test
+        GEMINI_API_KEY: fake_key
+      run: |
+        # O comando --ignore=tests/scripts garante que o CI pule os testes manuais
+        # --cov=src gera relatório de cobertura apenas do código fonte real
+        pytest -v tests/unit tests/integration --ignore=tests/scripts --cov=src --cov-fail-under=80

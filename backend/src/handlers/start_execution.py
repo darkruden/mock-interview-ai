@@ -2,53 +2,59 @@ import json
 import os
 import boto3
 import urllib.parse
+from botocore.config import Config
 
-# Cliente da Step Functions
-sfn_client = boto3.client('stepfunctions')
-STATE_MACHINE_ARN = os.environ.get('STATE_MACHINE_ARN')
+_SFN_CLIENT = None
 
-def lambda_handler(event, context):
+def get_sfn_client():
+    global _SFN_CLIENT
+    if _SFN_CLIENT is None:
+        config = Config(retries={'max_attempts': 3, 'mode': 'standard'})
+        _SFN_CLIENT = boto3.client("stepfunctions", config=config)
+    return _SFN_CLIENT
+
+def lambda_handler(event, context, sfn_client=None):
     """
-    Gatilho S3: Recebe o upload e inicia a State Machine.
+    Trigger S3 -> Step Functions.
+    Inicia o fluxo de orquestração quando um arquivo é salvo.
     """
-    print(f"S3 Event recebido: {json.dumps(event)}")
+    client = sfn_client if sfn_client else get_sfn_client()
+    state_machine_arn = os.environ.get("STATE_MACHINE_ARN")
 
-    if not STATE_MACHINE_ARN:
-        print("ERRO: STATE_MACHINE_ARN não configurado.")
-        return
+    print(f"Evento Recebido: {json.dumps(event)}")
 
-    # Pode haver múltiplos arquivos num só evento, processamos todos
-    for record in event['Records']:
-        bucket = record['s3']['bucket']['name']
-        # Decodifica o nome do arquivo (ex: espaços viram %20)
-        key = urllib.parse.unquote_plus(record['s3']['object']['key'])
+    try:
+        # Processa cada arquivo (geralmente é um só, mas S3 pode enviar lotes)
+        for record in event['Records']:
+            bucket = record['s3']['bucket']['name']
+            key = urllib.parse.unquote_plus(record['s3']['object']['key'])
+            
+            # Extrai o session_id do caminho (uploads/{uuid}/audio.mp3)
+            # Estrutura esperada: uploads/<session_id>/arquivo
+            parts = key.split('/')
+            if len(parts) < 2:
+                print(f"Ignorando chave inválida: {key}")
+                continue
+                
+            session_id = parts[1]
 
-        # Extrai o session_id do caminho (uploads/UUID/audio.mp3)
-        try:
-            session_id = key.split("/")[1]
-        except IndexError:
-            print(f"Ignorando arquivo fora do padrão: {key}")
-            continue
+            input_payload = {
+                "session_id": session_id,
+                "bucket": bucket,
+                "key": key
+            }
 
-        # Payload que será enviado para a Step Function -> e depois para o process_audio.py
-        input_payload = {
-            "session_id": session_id,
-            "bucket": bucket,
-            "key": key,
-            "timestamp": record['eventTime']
-        }
-
-        try:
-            response = sfn_client.start_execution(
-                stateMachineArn=STATE_MACHINE_ARN,
-                name=f"analysis-{session_id}", # Nome único da execução (Evita duplicidade)
+            print(f"Iniciando Step Function para sessão: {session_id}")
+            
+            client.start_execution(
+                stateMachineArn=state_machine_arn,
+                name=f"{session_id}-{int(context.aws_request_id[-4:])}", # Nome único da execução
                 input=json.dumps(input_payload)
             )
-            print(f"Started execution: {response['executionArn']}")
-        except sfn_client.exceptions.ExecutionAlreadyExists:
-            print(f"Execução já existe para a sessão {session_id}")
-        except Exception as e:
-            print(f"Erro ao iniciar Step Function: {str(e)}")
-            raise e
 
-    return {"status": "triggered"}
+        return {"statusCode": 200, "body": "Execution Started"}
+
+    except Exception as e:
+        print(f"ERRO: {str(e)}")
+        # Não lançamos erro para não reprocessar eventos do S3 infinitamente em loop
+        return {"statusCode": 500, "error": str(e)}
