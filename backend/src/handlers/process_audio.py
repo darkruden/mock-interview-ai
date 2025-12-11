@@ -1,17 +1,18 @@
 import json
 import os
 import boto3
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import time
-import tempfile  # <--- IMPORTANTE: Adicione esta importação
+import tempfile
 
 # --- Padrão Singleton para Clientes ---
 _S3_CLIENT = None
 _DYNAMODB_RES = None
-_GENAI_CONFIGURED = False
+_GENAI_CLIENT = None
 
 def get_resources():
-    global _S3_CLIENT, _DYNAMODB_RES, _GENAI_CONFIGURED
+    global _S3_CLIENT, _DYNAMODB_RES, _GENAI_CLIENT
     
     if _S3_CLIENT is None:
         _S3_CLIENT = boto3.client("s3")
@@ -19,21 +20,21 @@ def get_resources():
     if _DYNAMODB_RES is None:
         _DYNAMODB_RES = boto3.resource("dynamodb")
         
-    if not _GENAI_CONFIGURED:
-        GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
-        if GEMINI_KEY:
-            genai.configure(api_key=GEMINI_KEY)
-            _GENAI_CONFIGURED = True
+    if _GENAI_CLIENT is None:
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if api_key:
+            # A nova lib instancia um Client
+            _GENAI_CLIENT = genai.Client(api_key=api_key)
             
-    return _S3_CLIENT, _DYNAMODB_RES, genai
+    return _S3_CLIENT, _DYNAMODB_RES, _GENAI_CLIENT
 
 def lambda_handler(event, context, resources=None):
     """
-    Executa a análise de IA com suporte a injeção de dependência e OS agnóstico.
+    Executa a análise de IA usando o novo SDK google-genai (v1.0+).
     """
     print(f"Worker Iniciado. Payload: {json.dumps(event)}")
     
-    s3, db, ai_module = resources if resources else get_resources()
+    s3, db, ai_client = resources if resources else get_resources()
     
     table_name = os.environ.get("TABLE_NAME")
     table = db.Table(table_name)
@@ -46,13 +47,10 @@ def lambda_handler(event, context, resources=None):
     if not session_id or not bucket_name or not s3_key:
         raise ValueError("Payload inválido: Faltam dados obrigatórios")
 
-    # --- CORREÇÃO CRÍTICA AQUI ---
-    # Em vez de hardcoded '/tmp/', usamos o diretório temporário do sistema
     local_path = os.path.join(tempfile.gettempdir(), f"{session_id}.mp3")
-    # -----------------------------
 
     try:
-        # 2. Busca Contexto (Job Description)
+        # 2. Busca Contexto
         db_response = table.get_item(Key={'session_id': session_id})
         job_description = db_response.get('Item', {}).get('job_description', "")
         
@@ -71,31 +69,35 @@ def lambda_handler(event, context, resources=None):
         
         _update_status(session_id, "PROCESSING")
 
-        # 3. Download do Áudio
+        # 3. Download do S3
         print(f"Baixando de {bucket_name}/{s3_key} para {local_path}...")
         s3.download_file(bucket_name, s3_key, local_path)
         
-        # 4. Enviar para Gemini
+        # 4. Enviar para Gemini (Nova Sintaxe)
         print("Enviando arquivo para o Gemini...")
-        myfile = ai_module.upload_file(local_path)
         
+        # Upload agora é via client.files
+        myfile = ai_client.files.upload(file=local_path)
+        
+        # Polling de processamento
         while myfile.state.name == "PROCESSING":
-            time.sleep(0.5)
-            myfile = ai_module.get_file(myfile.name)
+            time.sleep(1)
+            # Get file agora é via client.files.get
+            myfile = ai_client.files.get(name=myfile.name)
 
-        model = ai_module.GenerativeModel("gemini-2.5-flash")
-        
+        if myfile.state.name == "FAILED":
+            raise ValueError("O processamento do arquivo de áudio falhou no Gemini.")
+
         # 5. Montagem do Prompt
         base_prompt = """
-        Você é um Recrutador Técnico Sênior e Auditor.
+        Você é um Recrutador Técnico Sênior.
         Sua tarefa é analisar o áudio fornecido.
         """
 
         context_instruction = ""
         if job_description:
             context_instruction = f"""
-            CONTEXTO DA VAGA (IMPORTANTE):
-            O candidato está se aplicando para a seguinte vaga:
+            CONTEXTO DA VAGA:
             "{job_description}"
             Avalie se o candidato demonstra os conhecimentos exigidos.
             """
@@ -116,9 +118,14 @@ def lambda_handler(event, context, resources=None):
         }}
         """
         
-        result = model.generate_content([myfile, prompt])
+        print("Gerando conteúdo...")
+        # Geração agora é via client.models.generate_content
+        response = ai_client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[myfile, prompt]
+        )
         
-        response_text = result.text.replace("```json", "").replace("```", "").strip()
+        response_text = response.text.replace("```json", "").replace("```", "").strip()
         ai_data = json.loads(response_text)
 
         # 6. Salvar Resultado
@@ -143,10 +150,8 @@ def lambda_handler(event, context, resources=None):
         raise e 
     
     finally:
-        # Garante a limpeza independente do SO
         if os.path.exists(local_path):
             try:
                 os.remove(local_path)
-                print("Limpeza concluída.")
-            except Exception as clean_err:
-                print(f"Erro na limpeza: {clean_err}")
+            except:
+                pass
