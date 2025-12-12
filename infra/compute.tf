@@ -30,29 +30,23 @@ resource "aws_iam_role_policy" "lambda_policy" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      # Permissão para criar Logs (CloudWatch)
+      # Logs
       {
         Effect   = "Allow"
         Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
         Resource = "arn:aws:logs:*:*:*"
       },
-      # Permissão para Escrever/Ler no DynamoDB
+      # DynamoDB (Leitura e Escrita)
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:GetItem"]
+        Action   = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:Query"]
         Resource = aws_dynamodb_table.sessions_table.arn
       },
-      # Permissão para Gerar URL de Upload no S3
+      # S3 (CRÍTICO: Permissão para baixar o áudio)
       {
         Effect   = "Allow"
-        Action   = ["s3:PutObject", "s3:GetObject"]
-        Resource = "${aws_s3_bucket.media_bucket.arn}/*"
-      },
-      # [NOVO] Permissão para iniciar a Step Function
-      {
-        Effect   = "Allow"
-        Action   = "states:StartExecution"
-        Resource = aws_sfn_state_machine.analysis_workflow.arn
+        Action   = ["s3:GetObject", "s3:PutObject"]      # PutObject opcional se quiser salvar logs
+        Resource = "${aws_s3_bucket.media_bucket.arn}/*" # O "/*" é vital para acessar os objetos
       }
     ]
   })
@@ -84,18 +78,26 @@ resource "aws_lambda_function" "process_audio" {
   function_name = "${var.project_name}-process-audio-${var.environment}"
   role          = aws_iam_role.lambda_role.arn
 
+  # Aponta para o mesmo ZIP gerado pelo build
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 
-  runtime     = "python3.11"
-  handler     = "handlers.process_audio.lambda_handler"
-  timeout     = 60  # IA demora mais que APIs normais, damos 1 minuto
-  memory_size = 256 # Um pouco mais de RAM para processar arquivos
+  runtime = "python3.11" # Obrigatório para a nova SDK google-genai
+
+  # IMPORTANTE: O handler deve bater com: pasta.arquivo.funcao
+  # Como seu zip tem a pasta 'handlers', e o arquivo é 'process_audio.py', e a função é 'handler'
+  handler = "handlers.process_audio.handler"
+
+  # Performance Tuning
+  timeout     = 60  # Aumentado para 60s (IA demora)
+  memory_size = 512 # Aumentado para processar JSON/Áudio mais rápido
 
   environment {
     variables = {
-      TABLE_NAME     = aws_dynamodb_table.sessions_table.name
-      GEMINI_API_KEY = var.gemini_api_key
+      # Conecta com a variável que definimos no Python
+      AUDIO_BUCKET_NAME = aws_s3_bucket.media_bucket.id
+      SESSIONS_TABLE    = aws_dynamodb_table.sessions_table.name
+      GEMINI_API_KEY    = var.gemini_api_key
     }
   }
 }
