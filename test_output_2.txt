@@ -1,0 +1,36 @@
+Traceback (most recent call last):
+  File "C:\Projetos Aleat¾rios\Mock Interview AI\backend\tests\scripts\test_audio_loop.py", line 89, in <module>
+    asyncio.run(run_test())
+    ~~~~~~~~~~~^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 204, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 127, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Projetos Aleat¾rios\Mock Interview AI\backend\tests\scripts\test_audio_loop.py", line 79, in run_test
+    async with client.aio.live.connect(model=MODEL_ID, config=config) as session:
+               ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\contextlib.py", line 214, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\bezer\AppData\Roaming\Python\Python314\site-packages\google\genai\live.py", line 1093, in connect
+    raw_response = await ws.recv(decode=False)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\bezer\AppData\Roaming\Python\Python314\site-packages\websockets\asyncio\connection.py", line 322, in recv
+    raise self.protocol.close_exc from self.recv_exc
+websockets.exceptions.ConnectionClosedError: received 1011 (internal error) You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: h; then sent 1011 (internal error) You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: h
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Projetos Aleat¾rios\Mock Interview AI\backend\tests\scripts\test_audio_loop.py", line 91, in <module>
+    print(f"\u274c Erro: {e}")
+    ~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u274c' in position 0: character maps to <undefined>

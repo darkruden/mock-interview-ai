@@ -1,22 +1,24 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { fetchAuthSession } from 'aws-amplify/auth';
+import { GoogleGenAI } from '@google/genai';
 
-// Configuração do WebSocket do Gemini
-const MODEL = "models/gemini-2.5-flash";
-const BASE_URL = "wss://generativelanguage.googleapis.com/v1alpha/models/gemini-2.5-flash:BidiGenerateContent";
+const MODEL_ID = "gemini-2.5-flash-native-audio-preview-09-2025";
 
 export function useGeminiLive(apiBaseUrl) {
     const [status, setStatus] = useState('disconnected');
     const [isSpeaking, setIsSpeaking] = useState(false);
-    const websocketRef = useRef(null);
-    const audioContextRef = useRef(null);
+
+    const sessionRef = useRef(null);
     const mediaStreamRef = useRef(null);
+    const audioInputContextRef = useRef(null);
+    const audioOutputContextRef = useRef(null);
     const processorRef = useRef(null);
+    const audioQueueRef = useRef([]);
+    const isPlayingRef = useRef(false);
 
     const getEphemeralToken = async () => {
         const session = await fetchAuthSession();
         const idToken = session.tokens?.idToken?.toString();
-
         const response = await fetch(`${apiBaseUrl}/auth/gemini-token`, {
             headers: { Authorization: idToken }
         });
@@ -27,166 +29,233 @@ export function useGeminiLive(apiBaseUrl) {
     const connect = async () => {
         try {
             setStatus('connecting');
-            const token = await getEphemeralToken();
+            const apiKey = await getEphemeralToken();
+            console.log("🔑 Chave obtida.");
 
-            let rawToken = await getEphemeralToken();
-            console.log("🔍 TOKEN RECEBIDO DA AWS:", rawToken);
-            const cleanToken = rawToken.includes('/') ? rawToken.split('/').pop() : rawToken;
-            console.log("✨ TOKEN LIMPO PARA O GOOGLE:", cleanToken);
-            const wsUrl = `${BASE_URL}?access_token=${cleanToken}`;
-            const ws = new WebSocket(wsUrl);
+            const client = new GoogleGenAI({ apiKey: apiKey });
 
-            ws.onopen = () => {
-                console.log("WebSocket Conectado!");
-                setStatus('connected');
-
-                // Configuração inicial (Setup)
-                ws.send(JSON.stringify({
-                    setup: {
-                        model: MODEL,
-                        generationConfig: {
-                            responseModalities: ["AUDIO"],
-                            speechConfig: {
-                                voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } }
-                            }
+            const session = await client.live.connect({
+                model: MODEL_ID,
+                config: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: {
+                        voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } }
+                    }
+                },
+                callbacks: {
+                    onopen: () => {
+                        console.log("✅ Conexão Live Estabelecida!");
+                        setStatus('connected');
+                    },
+                    onmessage: (msg) => {
+                        // Áudio
+                        if (msg.serverContent?.modelTurn?.parts?.[0]?.inlineData) {
+                            // console.log("🎵 Áudio recebido!");
+                            const audioData = msg.serverContent.modelTurn.parts[0].inlineData.data;
+                            enqueueAudioChunk(audioData);
                         }
+                        // Texto/Logs
+                        if (msg.serverContent?.modelTurn?.parts?.[0]?.text) {
+                            console.log("📝 IA:", msg.serverContent.modelTurn.parts[0].text);
+                        }
+                    },
+                    onclose: (e) => {
+                        console.log("🔌 Conexão fechada:", e);
+                        cleanup();
+                        setStatus('disconnected');
+                    },
+                    onerror: (err) => {
+                        console.error("❌ Erro na sessão:", err);
+                        setStatus('error');
                     }
-                }));
-                startMicrophone(ws);
-            };
-
-            ws.onmessage = async (event) => {
-                let response;
-                try {
-                    // [CORREÇÃO] Verifica se é Blob (Binário) ou Texto Puro
-                    let textData;
-                    if (event.data instanceof Blob) {
-                        textData = await event.data.text();
-                    } else {
-                        textData = event.data;
-                    }
-
-                    response = JSON.parse(textData);
-                } catch (e) {
-                    console.error("Erro ao parsear mensagem:", e);
-                    return;
                 }
+            });
 
-                // Se receber áudio da IA, toca
-                if (response.serverContent?.modelTurn?.parts?.[0]?.inlineData) {
-                    const audioData = response.serverContent.modelTurn.parts[0].inlineData.data;
-                    playAudioChunk(audioData);
-                }
+            sessionRef.current = session;
 
-                // Log de fim de turno (debug)
-                if (response.serverContent?.turnComplete) {
-                    console.log("IA terminou de falar.");
-                }
-            };
-
-            // [CORREÇÃO] Adicionado 'event' aqui para não dar erro no log
-            ws.onclose = (event) => {
-                console.log(`WebSocket Fechado. Código: ${event.code}, Motivo: ${event.reason}`);
-
-                // Códigos de erro comuns: 
-                // 4000-4999: Erro de Protocolo (Modelo errado, JSON inválido)
-                // 1006: Erro de Rede (CORS, Queda de net)
-
-                stopAudio();
-                setStatus('disconnected');
-            };
-
-            ws.onerror = (err) => {
-                console.error("Erro WS:", err);
-                setStatus('error');
-            };
-
-            websocketRef.current = ws;
+            // Inicia Microfone com Downsampling
+            await startMicrophone(session);
 
         } catch (err) {
-            console.error(err);
+            console.error("Erro fatal ao conectar:", err);
             setStatus('error');
+            cleanup();
         }
     };
 
     const disconnect = () => {
-        if (websocketRef.current) websocketRef.current.close();
-        stopAudio();
+        console.log("Desconectando...");
+        cleanup();
         setStatus('disconnected');
     };
 
-    // --- Lógica de Áudio (Mantida igual) ---
-    const startMicrophone = async (ws) => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: { sampleRate: 16000, channelCount: 1 } });
-            mediaStreamRef.current = stream;
-            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    const cleanup = () => {
+        stopAudioInput();
+        sessionRef.current = null;
+        audioQueueRef.current = [];
+        isPlayingRef.current = false;
+    };
 
-            const source = audioContextRef.current.createMediaStreamSource(stream);
-            const processor = audioContextRef.current.createScriptProcessor(4096, 1, 1);
+    // --- ALGORITMO DE DOWNSAMPLING (O Segredo) ---
+    const downsampleTo16k = (buffer, inputRate) => {
+        if (inputRate === 16000) return buffer;
+
+        const compression = inputRate / 16000;
+        const length = Math.floor(buffer.length / compression);
+        const result = new Float32Array(length);
+
+        for (let i = 0; i < length; i++) {
+            // Pega o sample correspondente (interpolação simples)
+            // Multiplicamos por 4.0 para AUMENTAR O GANHO (Volume Boost)
+            // Isso resolve o problema de "IA não me ouve"
+            let sample = buffer[Math.floor(i * compression)] * 4.0;
+
+            // Clampa o valor entre -1 e 1 para não distorcer
+            result[i] = Math.max(-1, Math.min(1, sample));
+        }
+        return result;
+    };
+
+    // --- AUDIO INPUT ---
+    const startMicrophone = async (session) => {
+        try {
+            console.log("🎙️ Iniciando microfone...");
+            // Pedimos a configuração padrão do navegador (geralmente 44.1k ou 48k)
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    channelCount: 1,
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            });
+            mediaStreamRef.current = stream;
+
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            audioInputContextRef.current = new AudioContextClass();
+            const sourceSampleRate = audioInputContextRef.current.sampleRate;
+            console.log(`🎙️ Input Nativo: ${sourceSampleRate}Hz -> Convertendo para 16000Hz`);
+
+            if (audioInputContextRef.current.state === 'suspended') {
+                await audioInputContextRef.current.resume();
+            }
+
+            const source = audioInputContextRef.current.createMediaStreamSource(stream);
+            // Buffer maior (4096) para processar melhor o downsampling
+            const processor = audioInputContextRef.current.createScriptProcessor(4096, 1, 1);
+
+            let chunksSent = 0;
 
             processor.onaudioprocess = (e) => {
-                if (ws.readyState !== WebSocket.OPEN) return;
+                if (!sessionRef.current) return;
 
                 const inputData = e.inputBuffer.getChannelData(0);
-                const pcmData = new Int16Array(inputData.length);
-                for (let i = 0; i < inputData.length; i++) {
-                    pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
-                }
-                const base64Audio = btoa(String.fromCharCode(...new Uint8Array(pcmData.buffer)));
 
-                ws.send(JSON.stringify({
-                    realtimeInput: {
-                        mediaChunks: [{
-                            mimeType: "audio/pcm; rate=16000",
-                            data: base64Audio
-                        }]
-                    }
-                }));
+                // 1. Converte 48k/44k -> 16k e aplica Boost de Volume
+                const downsampledData = downsampleTo16k(inputData, sourceSampleRate);
+
+                // 2. Converte Float32 -> Int16 PCM
+                const pcmData = new Int16Array(downsampledData.length);
+                for (let i = 0; i < downsampledData.length; i++) {
+                    const s = downsampledData[i];
+                    pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                }
+
+                const base64Audio = arrayBufferToBase64(pcmData.buffer);
+
+                try {
+                    // Agora enviamos SEMPRE como 16000, pois convertemos manualmente
+                    sessionRef.current.sendRealtimeInput([{
+                        mimeType: "audio/pcm;rate=16000",
+                        data: base64Audio
+                    }]);
+
+                    chunksSent++;
+                    if (chunksSent % 50 === 0) console.log(`🎤 Enviando (16k Convertido)...`);
+
+                } catch (err) {
+                    // Ignora erros de socket fechado
+                }
             };
 
             source.connect(processor);
-            processor.connect(audioContextRef.current.destination);
+            processor.connect(audioInputContextRef.current.destination);
             processorRef.current = processor;
+            console.log("🎙️ Microfone ativo!");
 
         } catch (e) {
-            console.error("Erro no Mic:", e);
+            console.error("Erro no Microfone:", e);
+            cleanup();
         }
     };
 
-    const stopAudio = () => {
-        if (mediaStreamRef.current) mediaStreamRef.current.getTracks().forEach(track => track.stop());
+    const stopAudioInput = () => {
+        if (mediaStreamRef.current) mediaStreamRef.current.getTracks().forEach(t => t.stop());
         if (processorRef.current) processorRef.current.disconnect();
-        if (audioContextRef.current) audioContextRef.current.close();
+        if (audioInputContextRef.current) audioInputContextRef.current.close();
     };
 
-    const playAudioChunk = async (base64Data) => {
+    function arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+    }
+
+    // --- AUDIO OUTPUT ---
+    const enqueueAudioChunk = (base64Data) => {
+        audioQueueRef.current.push(base64Data);
+        if (!isPlayingRef.current) playNextChunk();
+    };
+
+    const playNextChunk = async () => {
+        if (audioQueueRef.current.length === 0) {
+            isPlayingRef.current = false;
+            setIsSpeaking(false);
+            return;
+        }
+
+        isPlayingRef.current = true;
+        setIsSpeaking(true);
+        const base64Data = audioQueueRef.current.shift();
+
         try {
-            setIsSpeaking(true);
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (!audioOutputContextRef.current) {
+                // Gemini devolve 24kHz
+                audioOutputContextRef.current = new AudioContextClass({ sampleRate: 24000 });
+            }
+
+            if (audioOutputContextRef.current.state === 'suspended') {
+                await audioOutputContextRef.current.resume();
+            }
+
             const binaryString = atob(base64Data);
             const len = binaryString.length;
             const bytes = new Uint8Array(len);
             for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
-
             const int16Data = new Int16Array(bytes.buffer);
             const float32Data = new Float32Array(int16Data.length);
             for (let i = 0; i < int16Data.length; i++) {
-                float32Data[i] = int16Data[i] / 0x7FFF;
+                float32Data[i] = int16Data[i] / 32768.0;
             }
 
-            if (!audioContextRef.current) audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-
-            const buffer = audioContextRef.current.createBuffer(1, float32Data.length, 24000);
+            const buffer = audioOutputContextRef.current.createBuffer(1, float32Data.length, 24000);
             buffer.getChannelData(0).set(float32Data);
 
-            const source = audioContextRef.current.createBufferSource();
+            const source = audioOutputContextRef.current.createBufferSource();
             source.buffer = buffer;
-            source.connect(audioContextRef.current.destination);
-            source.onended = () => setIsSpeaking(false);
+            source.connect(audioOutputContextRef.current.destination);
+            source.onended = () => playNextChunk();
             source.start();
+            console.log("🔊 Tocando...");
 
         } catch (e) {
             console.error("Erro playback:", e);
+            playNextChunk();
         }
     };
 
