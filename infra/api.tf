@@ -114,3 +114,31 @@ resource "aws_lambda_permission" "api_gw_token" {
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.main_api.execution_arn}/*/*/auth/gemini-token"
 }
+
+
+# Integração da Lambda process_audio
+resource "aws_apigatewayv2_integration" "process_audio_integration" {
+  api_id                 = aws_apigatewayv2_api.main_api.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.process_audio.invoke_arn
+  payload_format_version = "2.0"
+}
+
+# Rota POST /sessions/process
+resource "aws_apigatewayv2_route" "post_process_audio" {
+  api_id    = aws_apigatewayv2_api.main_api.id
+  route_key = "POST /sessions/process"
+  target    = "integrations/${aws_apigatewayv2_integration.process_audio_integration.id}"
+
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.cognito_auth.id
+}
+
+# Permissão para o API Gateway invocar a Lambda
+resource "aws_lambda_permission" "api_gw_process_audio" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.process_audio.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.main_api.execution_arn}/*/*"
+}

@@ -3,155 +3,127 @@ import os
 import boto3
 from google import genai
 from google.genai import types
-import time
-import tempfile
 
-# --- Padrão Singleton para Clientes ---
-_S3_CLIENT = None
-_DYNAMODB_RES = None
-_GENAI_CLIENT = None
+# Configuração AWS
+s3 = boto3.client("s3")
+dynamodb = boto3.resource("dynamodb")
+TABLE_NAME = os.environ.get("SESSIONS_TABLE", "MockInterviewSessions")
+AUDIO_BUCKET = os.environ.get("AUDIO_BUCKET_NAME", "mock-interview-audio-bucket")
 
-def get_resources():
-    global _S3_CLIENT, _DYNAMODB_RES, _GENAI_CLIENT
-    
-    if _S3_CLIENT is None:
-        _S3_CLIENT = boto3.client("s3")
-    
-    if _DYNAMODB_RES is None:
-        _DYNAMODB_RES = boto3.resource("dynamodb")
-        
-    if _GENAI_CLIENT is None:
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if api_key:
-            # A nova lib instancia um Client
-            _GENAI_CLIENT = genai.Client(api_key=api_key)
-            
-    return _S3_CLIENT, _DYNAMODB_RES, _GENAI_CLIENT
-
-def lambda_handler(event, context, resources=None):
+def handler(event, context):
     """
-    Executa a análise de IA usando o novo SDK google-genai (v1.0+).
+    Processa o áudio de entrevista usando Gemini 2.5 Flash (Versão Estável).
+    Entrada: Evento JSON com { session_id, file_key }
+    Saída: JSON Estruturado { transcription, feedback, score, follow_up_question }
     """
-    print(f"Worker Iniciado. Payload: {json.dumps(event)}")
+    print(f"🚀 Event received: {json.dumps(event)}")
     
-    s3, db, ai_client = resources if resources else get_resources()
-    
-    table_name = os.environ.get("TABLE_NAME")
-    table = db.Table(table_name)
-    
-    # 1. Leitura Direta
-    session_id = event.get('session_id')
-    bucket_name = event.get('bucket')
-    s3_key = event.get('key')
-
-    if not session_id or not bucket_name or not s3_key:
-        raise ValueError("Payload inválido: Faltam dados obrigatórios")
-
-    local_path = os.path.join(tempfile.gettempdir(), f"{session_id}.mp3")
-
     try:
-        # 2. Busca Contexto
-        db_response = table.get_item(Key={'session_id': session_id})
-        job_description = db_response.get('Item', {}).get('job_description', "")
+        # 1. Validação da Entrada
+        body = json.loads(event.get("body", "{}"))
+        session_id = body.get("session_id")
+        file_key = body.get("file_key")
         
-        # Helper interno para atualizar status
-        def _update_status(sid, status, error_msg=None):
-            params = {
-                'Key': {'session_id': sid},
-                'UpdateExpression': "SET #s = :status",
-                'ExpressionAttributeNames': {'#s': 'status'},
-                'ExpressionAttributeValues': {':status': status}
+        if not session_id or not file_key:
+            return {
+                "statusCode": 400, 
+                "body": json.dumps({"error": "Missing session_id or file_key"})
             }
-            if error_msg:
-                params['UpdateExpression'] += ", error_message = :err"
-                params['ExpressionAttributeValues'][':err'] = error_msg
-            table.update_item(**params)
-        
-        _update_status(session_id, "PROCESSING")
 
-        # 3. Download do S3
-        print(f"Baixando de {bucket_name}/{s3_key} para {local_path}...")
-        s3.download_file(bucket_name, s3_key, local_path)
+        # 2. Setup do Gemini Client (Nova SDK google-genai)
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            return {
+                "statusCode": 500, 
+                "body": json.dumps({"error": "GEMINI_API_KEY not configured in Lambda"})
+            }
         
-        # 4. Enviar para Gemini (Nova Sintaxe)
-        print("Enviando arquivo para o Gemini...")
-        
-        # Upload agora é via client.files
-        myfile = ai_client.files.upload(file=local_path)
-        
-        # Polling de processamento
-        while myfile.state.name == "PROCESSING":
-            time.sleep(1)
-            # Get file agora é via client.files.get
-            myfile = ai_client.files.get(name=myfile.name)
+        client = genai.Client(api_key=api_key)
 
-        if myfile.state.name == "FAILED":
-            raise ValueError("O processamento do arquivo de áudio falhou no Gemini.")
+        # 3. Baixar Áudio do S3 para Processamento Local (/tmp)
+        # Nota: Lambda tem armazenamento temporário efêmero em /tmp
+        download_path = f"/tmp/{os.path.basename(file_key)}"
+        print(f"⬇️ Downloading from {AUDIO_BUCKET}/{file_key} to {download_path}...")
+        
+        s3.download_file(AUDIO_BUCKET, file_key, download_path)
+        
+        # 4. Carregar bytes do áudio
+        with open(download_path, "rb") as f:
+            audio_bytes = f.read()
 
-        # 5. Montagem do Prompt
-        base_prompt = """
-        Você é um Recrutador Técnico Sênior.
-        Sua tarefa é analisar o áudio fornecido.
+        # 5. Definição do Prompt de Engenharia de Software
+        # Focamos em JSON estrito e persona sênior.
+        system_instruction = """
+        Você é um Arquiteto de Software Sênior conduzindo uma entrevista técnica.
+        Analise o áudio da resposta do candidato.
+        
+        Se o áudio for inaudível ou silêncio, retorne score 0 e feedback "Áudio não detectado".
+        
+        Sua resposta DEVE ser estritamente um objeto JSON com esta estrutura:
+        {
+            "transcription": "Texto exato do que o candidato falou",
+            "feedback": "Análise crítica técnica (pontos positivos e melhorias)",
+            "score": Inteiro de 0 a 100,
+            "follow_up_question": "Uma pergunta técnica desafiadora baseada no que foi dito"
+        }
         """
 
-        context_instruction = ""
-        if job_description:
-            context_instruction = f"""
-            CONTEXTO DA VAGA:
-            "{job_description}"
-            Avalie se o candidato demonstra os conhecimentos exigidos.
-            """
+        print("🤖 Invoking Gemini 2.5 Flash...")
 
-        prompt = f"""
-        {base_prompt}
-        {context_instruction}
-
-        REGRAS CRÍTICAS:
-        1. Analise APENAS o áudio.
-        2. Se silêncio/ruído, retorne {{"error": "AUDIO_INAUDIVEL"}}.
-
-        Formato de Resposta (JSON Puro):
-        {{
-            "technical_score": (0-100),
-            "summary": "Resumo",
-            "feedback": "Feedback"
-        }}
-        """
-        
-        print("Gerando conteúdo...")
-        # Geração agora é via client.models.generate_content
-        response = ai_client.models.generate_content(
-            model="gemini-2.5-flash-native-audio-preview-09-2025",
-            contents=[myfile, prompt]
-        )
-        
-        response_text = response.text.replace("```json", "").replace("```", "").strip()
-        ai_data = json.loads(response_text)
-
-        # 6. Salvar Resultado
-        if "error" in ai_data:
-             _update_status(session_id, "ERROR", ai_data["error"])
-        else:
-            table.update_item(
-                Key={'session_id': session_id},
-                UpdateExpression="SET #s = :status, ai_feedback = :feedback, updated_at = :time",
-                ExpressionAttributeNames={'#s': 'status'},
-                ExpressionAttributeValues={
-                    ':status': 'COMPLETED',
-                    ':feedback': ai_data,
-                    ':time': str(int(time.time()))
-                }
+        # 6. Chamada ao Modelo (Gemini 2.5 Flash Estável)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[
+                types.Content(
+                    parts=[
+                        types.Part.from_bytes(data=audio_bytes, mime_type="audio/mp3"),
+                        types.Part.from_text(text=system_instruction)
+                    ]
+                )
+            ],
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json", # Garante JSON puro (sem markdown)
+                temperature=0.5 # Menor temperatura para avaliação mais objetiva
             )
+        )
 
-        return {"status": "COMPLETED", "session_id": session_id}
+        # 7. Parsing e Tratamento de Resposta
+        print(f"✅ Gemini Raw Response: {response.text}")
+        
+        try:
+            ai_data = json.loads(response.text)
+        except json.JSONDecodeError:
+            # Fallback de segurança (raro com response_mime_type)
+            print("⚠️ JSON parsing failed, returning raw error")
+            raise ValueError("Failed to parse AI response as JSON")
+
+        # 8. Atualizar Persistência (DynamoDB)
+        table = dynamodb.Table(TABLE_NAME)
+        table.update_item(
+            Key={"session_id": session_id},
+            UpdateExpression="SET transcription = :t, feedback = :f, score = :s, follow_up = :q, last_updated = :u, status = :st",
+            ExpressionAttributeValues={
+                ":t": ai_data.get("transcription", ""),
+                ":f": ai_data.get("feedback", ""),
+                ":s": ai_data.get("score", 0),
+                ":q": ai_data.get("follow_up_question", ""),
+                ":u": str(context.aws_request_id), # Usando ID da request como timestamp simples ou use datetime
+                ":st": "COMPLETED"
+            }
+        )
+
+        return {
+            "statusCode": 200,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Credentials": True,
+            },
+            "body": json.dumps(ai_data)
+        }
 
     except Exception as e:
-        print(f"ERRO FATAL: {str(e)}")
-        raise e 
-    
-    finally:
-        if os.path.exists(local_path):
-            try:
-                os.remove(local_path)
-            except:
-                pass
+        print(f"❌ Critical Error: {str(e)}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": str(e)})
+        }
