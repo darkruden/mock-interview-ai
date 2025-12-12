@@ -121,7 +121,7 @@ def lambda_handler(event, context, resources=None):
         print("Gerando conteúdo...")
         # Geração agora é via client.models.generate_content
         response = ai_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.5-flash-native-audio-preview-09-2025",
             contents=[myfile, prompt]
         )
         
